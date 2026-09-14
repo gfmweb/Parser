@@ -17,41 +17,53 @@ class YandexReviewMapper
      */
     public function map(array $payload): array
     {
-        $data = $payload['data'] ?? null;
-
-        if (! is_array($data)) {
-            throw new SourceChangedException('data', $payload);
-        }
-
-        $reviews = $data['reviews'] ?? null;
-
-        if (! is_array($reviews)) {
-            throw new SourceChangedException('data.reviews', $payload);
-        }
-
+        $reviews = $this->extractReviews($payload);
         $mapped = [];
 
         foreach ($reviews as $index => $review) {
             if (! is_array($review)) {
-                throw new SourceChangedException("data.reviews.{$index}", $payload);
+                throw new SourceChangedException("reviewResults.reviews.{$index}", $payload);
             }
 
-            $mapped[] = $this->mapReview($review, $payload);
+            $mappedReview = $this->mapReview($review, $payload);
+
+            if ($mappedReview !== null) {
+                $mapped[] = $mappedReview;
+            }
         }
 
         return $mapped;
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     * @return list<mixed>
+     */
+    private function extractReviews(array $payload): array
+    {
+        if (isset($payload['reviews']) && is_array($payload['reviews'])) {
+            return array_values($payload['reviews']);
+        }
+
+        $data = $payload['data'] ?? null;
+
+        if (is_array($data) && isset($data['reviews']) && is_array($data['reviews'])) {
+            return array_values($data['reviews']);
+        }
+
+        throw new SourceChangedException('reviewResults.reviews', $payload);
+    }
+
+    /**
      * @param  array<string, mixed>  $review
      * @param  array<string, mixed>  $payload
      */
-    private function mapReview(array $review, array $payload): ReviewDTO
+    private function mapReview(array $review, array $payload): ?ReviewDTO
     {
-        $id = $review['id'] ?? null;
+        $id = $review['reviewId'] ?? $review['id'] ?? null;
 
         if (! is_string($id) && ! is_int($id)) {
-            throw new SourceChangedException('reviews[].id', $payload);
+            throw new SourceChangedException('reviews[].reviewId', $payload);
         }
 
         $rating = $review['rating'] ?? null;
@@ -60,29 +72,56 @@ class YandexReviewMapper
             throw new SourceChangedException('reviews[].rating', $payload);
         }
 
-        $createdTime = $review['createdTime'] ?? null;
+        $ratingInt = (int) $rating;
+
+        // Яндекс иногда отдаёт 0 (оценка не выставлена) — в DTO и CHECK допустимы только 1–5.
+        if ($ratingInt < 1 || $ratingInt > 5) {
+            return null;
+        }
+
+        $createdTime = $review['updatedTime'] ?? $review['createdTime'] ?? null;
 
         if (! is_string($createdTime) || $createdTime === '') {
-            throw new SourceChangedException('reviews[].createdTime', $payload);
+            throw new SourceChangedException('reviews[].updatedTime', $payload);
         }
 
         try {
             $reviewedAt = new DateTimeImmutable($createdTime);
         } catch (Exception $exception) {
-            throw new SourceChangedException('reviews[].createdTime', $payload, 0, $exception);
+            throw new SourceChangedException('reviews[].updatedTime', $payload, 0, $exception);
         }
 
         $author = is_array($review['author'] ?? null) ? $review['author'] : [];
         $authorName = $author['name'] ?? '';
-        $authorUrl = $author['uri'] ?? null;
+        $authorUrl = $this->authorUrl($author);
 
         return new ReviewDTO(
             yandexReviewId: (string) $id,
             authorName: is_string($authorName) ? $authorName : '',
-            authorUrl: is_string($authorUrl) ? $authorUrl : null,
-            rating: (int) $rating,
+            authorUrl: $authorUrl,
+            rating: $ratingInt,
             text: is_string($review['text'] ?? null) ? $review['text'] : null,
             reviewedAt: $reviewedAt,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $author
+     */
+    private function authorUrl(array $author): ?string
+    {
+        $uri = $author['uri'] ?? null;
+
+        if (is_string($uri) && $uri !== '') {
+            return $uri;
+        }
+
+        $publicId = $author['publicId'] ?? null;
+
+        if (! is_string($publicId) || $publicId === '') {
+            return null;
+        }
+
+        return 'https://yandex.ru/maps/user/'.$publicId;
     }
 }

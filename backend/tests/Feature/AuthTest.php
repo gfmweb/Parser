@@ -27,6 +27,22 @@ it('login returns token for valid credentials', function () {
     expect($response->json('token'))->toBeString()->not->toBeEmpty();
 });
 
+it('login from a browser origin does not require a csrf token', function () {
+    User::factory()->create([
+        'email' => 'admin@test.com',
+        'password' => 'password',
+    ]);
+
+    $this->withHeaders([
+        'Origin' => 'http://localhost',
+        'Referer' => 'http://localhost/login',
+    ])->postJson('/api/login', [
+        'email' => 'admin@test.com',
+        'password' => 'password',
+    ])->assertOk()
+        ->assertJsonPath('user.email', 'admin@test.com');
+});
+
 it('login returns 422 for invalid credentials', function () {
     $this->postJson('/api/login', [
         'email' => 'not-an-email',

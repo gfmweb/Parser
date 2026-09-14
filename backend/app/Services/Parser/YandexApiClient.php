@@ -12,7 +12,6 @@ use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
-use JsonException;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 
@@ -20,7 +19,7 @@ class YandexApiClient
 {
     private const BASE_URI = 'https://yandex.ru';
 
-    private const TIMEOUT_SECONDS = 15.0;
+    private const TIMEOUT_SECONDS = 20.0;
 
     private const MAX_ATTEMPTS = 3;
 
@@ -34,6 +33,7 @@ class YandexApiClient
 
     public function __construct(
         private readonly ClientInterface $http,
+        private readonly YandexMapsStateExtractor $extractor = new YandexMapsStateExtractor,
     ) {}
 
     public static function make(): self
@@ -47,7 +47,7 @@ class YandexApiClient
             'handler' => $stack,
             'http_errors' => false,
             'headers' => [
-                'Accept' => 'application/json,text/plain,*/*',
+                'Accept' => 'text/html,application/xhtml+xml;q=0.9,application/json;q=0.8,*/*;q=0.7',
                 'Accept-Language' => 'ru-RU,ru;q=0.9',
                 'Referer' => 'https://yandex.ru/maps/',
             ],
@@ -61,23 +61,27 @@ class YandexApiClient
      */
     public function getOrgInfo(string $orgId): array
     {
-        return $this->getJson('/maps/api/business/fetchpointinfo', [
-            'oid' => $orgId,
-            'lang' => 'ru_RU',
-        ]);
+        return $this->getReviewsPage($orgId, 1);
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function getReviews(string $orgId, int $offset, int $limit = 10): array
+    public function getReviews(string $orgId, int $offset, int $limit = 50): array
     {
-        return $this->getJson('/maps/api/business/reviews', [
-            'oid' => $orgId,
-            'offset' => $offset,
-            'limit' => $limit,
-            'lang' => 'ru_RU',
-            'sort' => 'by_time',
+        $pageSize = max($limit, 1);
+        $page = intdiv(max($offset, 0), $pageSize) + 1;
+
+        return $this->getReviewsPage($orgId, $page);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getReviewsPage(string $orgId, int $page): array
+    {
+        return $this->getHtmlState('/maps/org/'.$orgId.'/reviews/', [
+            'page' => max($page, 1),
         ]);
     }
 
@@ -85,7 +89,7 @@ class YandexApiClient
      * @param  array<string, scalar>  $query
      * @return array<string, mixed>
      */
-    private function getJson(string $path, array $query): array
+    private function getHtmlState(string $path, array $query): array
     {
         try {
             $response = $this->http->request('GET', $path, [
@@ -112,18 +116,7 @@ class YandexApiClient
             throw new ParserException("Yandex API request failed with HTTP {$status}.");
         }
 
-        try {
-            $decoded = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            throw new ParserException('Yandex API returned invalid JSON.', 0, $exception);
-        }
-
-        if (! is_array($decoded)) {
-            throw new ParserException('Yandex API returned invalid JSON.');
-        }
-
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
+        return $this->extractor->extract((string) $response->getBody());
     }
 
     private static function retryMiddleware(): callable
@@ -147,7 +140,7 @@ class YandexApiClient
                 return $status === 429 || $status >= 500;
             },
             static function (int $retries): int {
-                return (2 ** ($retries + 1)) * 1000;
+                return (2 ** $retries) * 1000;
             },
         );
     }

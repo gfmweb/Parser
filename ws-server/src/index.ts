@@ -11,6 +11,11 @@ const wsPort = readPort('WS_PORT', 6001);
 const httpPort = readPort('HTTP_PORT', 6002);
 const port = wsPort;
 const internalSecret = process.env.WS_INTERNAL_SECRET ?? 'changeme';
+const nodeEnv = process.env.NODE_ENV ?? 'development';
+
+if (nodeEnv === 'production' && (internalSecret === 'changeme' || internalSecret.length < 32)) {
+  throw new Error('WS_INTERNAL_SECRET must be a random string of at least 32 characters in production.');
+}
 
 const broadcaster = new Broadcaster(logger);
 let wss: WebSocketServer | undefined;

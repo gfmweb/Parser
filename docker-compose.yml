@@ -23,6 +23,7 @@ x-php: &php
     REDIS_PORT: 6379
     REDIS_PASSWORD: ${REDIS_PASSWORD:-secret}
     QUEUE_CONNECTION: redis
+    REDIS_QUEUE_RETRY_AFTER: "300"
     SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS:-localhost,localhost:5173}
     WS_SERVER_URL: ${WS_SERVER_URL:-http://ws-server:6001}
     WS_INTERNAL_SECRET: ${WS_INTERNAL_SECRET:-changeme}
@@ -87,7 +88,7 @@ services:
           echo "queue-worker: жду Laravel (artisan)..."
           sleep 5
         done
-        exec php artisan queue:work --sleep=1 --tries=3 --backoff=60 --timeout=90
+        exec php artisan queue:work --sleep=1 --tries=3 --backoff=60 --timeout=240
     healthcheck:
       disable: true
 

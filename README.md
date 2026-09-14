@@ -111,6 +111,7 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm --n
 | `WS_SERVER_URL` | Базовый URL Node.js WS-сервера для внутренних HTTP-уведомлений | `http://ws-server:6001` |
 | `WS_INTERNAL_SECRET` | Общий секрет Laravel ↔ WS (`X-Internal-Secret`); в продакшене 32 случайных символа | `changeme` |
 | `PROXY_LIST` | Зарезервировано: список прокси через запятую для будущего пула | пусто |
+| `REDIS_QUEUE_RETRY_AFTER` | Через сколько секунд Redis считает джобу зависшей (`retry_after` > timeout воркера) | `300` |
 | `AWS_ACCESS_KEY_ID` | Ключ AWS (штатный шаблон Laravel, не используется парсером) | — |
 | `AWS_SECRET_ACCESS_KEY` | Секрет AWS | — |
 | `AWS_DEFAULT_REGION` | Регион AWS | `us-east-1` |
@@ -157,26 +158,28 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm --n
 
 ## 4. Подход к парсингу и антидетекция
 
-**Выбранный подход: перехват внутреннего JSON API.**
+**Выбранный подход: JSON-стейт из HTML карточки отзывов.**
 
 ### Почему не headless-браузер (Puppeteer/Playwright)
 
 Нужен Chrome в контейнере: это сотни мегабайт RAM (~300 МБ и больше), медленный холодный старт, сложный Docker-слой. Яндекс всё равно умеет отличать автоматизацию. Для пакетной загрузки сотен отзывов это лишняя тяжесть.
 
-### Почему внутренний API
+### Почему HTML-стейт, а не XHR API
 
-Карточка на Яндекс Картах подгружает отзывы через XHR на внутренние эндпоинты (`/maps/api/business/fetchpointinfo`, `/maps/api/business/reviews`). Клиент `YandexApiClient` повторяет эти HTTP-запросы через Guzzle и получает чистый JSON. DOM не разбираем. Это быстрее (нет рендеринга страницы), легче (только HTTP-клиент) и детерминированно: один и тот же JSON мапится в одни и те же DTO.
+Раньше карточка подгружала отзывы через XHR (`/maps/api/business/fetchpointinfo`, `/maps/api/business/reviews`). Эти эндпоинты без одноразового `csrfToken` и подписи `s` отвечают `{"csrfToken":"..."}` без `data` — парсер падал с `Structure changed: missing field data`.
+
+Страница `/maps/org/{id}/reviews/?page=N` по-прежнему отдаёт тот же JSON внутри `<script>` (SSR). Клиент качает HTML, достаёт стейт, DOM карточки не разбираем. На странице до 50 отзывов, мета организации лежит в `stack[0].results.items[0]`.
 
 ### Риски
 
-Внутренний API может смениться без анонса. Часть выдачи теоретически завязана на сессионные куки. Лимиты на такие запросы бывают жёстче, чем на обычный просмотр карты в браузере. Поэтому парсер явно падает с `SourceChangedException`, а не «тихо» возвращает пустой список.
+Вёрстка и форма стейта могут смениться без анонса. Поэтому парсер явно падает с `SourceChangedException`, а не «тихо» возвращает пустой список.
 
 ### Стратегия антибана
 
 - Ротация `User-Agent` из пула реальных Chrome UA (Windows / macOS / Linux).
 - Случайная пауза 0.5–1.5 с между страницами отзывов (`usleep`) — имитация человеческой прокрутки.
-- Пакетная выгрузка: страница по 10 отзывов, не один HTTP-запрос на каждый отзыв.
-- Экспоненциальная отсрочка при HTTP 429 и 5xx: пауза `2^попытка` секунд (2 с, 4 с, 8 с), всего до 3 попыток.
+- Пакетная выгрузка: страница по 50 отзывов (`?page=N`).
+- Экспоненциальная отсрочка при HTTP 429 и 5xx: пауза `2^попытка` секунд между повторами (2 с, затем 4 с), всего до 3 попыток HTTP.
 - Если после трёх 429 ответ всё ещё «слишком много запросов», задача падает с `parse_error = "Rate limited"`.
 - Для 50 организаций задачи ставятся в Redis и разъезжаются по времени; горизонтально добавляются контейнеры `queue-worker`.
 - В перспективе — пул прокси через `PROXY_LIST` (переменная уже зарезервирована в `.env.example`).
@@ -185,7 +188,7 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm --n
 
 Каждое чтение поля JSON идёт через проверку типа: `?? null`, затем `is_array` / `is_string` / `is_numeric`. «Просто взять `$data['reviews'][0]['id']`» нельзя — отсутствующий ключ должен стать контролируемым сбоем.
 
-Если ожидаемого поля нет, маппер бросает `SourceChangedException` с именем поля (`reviews[].id`, `data.rating.value` и т.д.).
+Если ожидаемого поля нет, маппер бросает `SourceChangedException` с именем поля (`reviews[].reviewId`, `stack.0.results.items.0.ratingData.ratingValue` и т.д.).
 
 Исключение ловит `ParseOrganizationJob`:
 
@@ -202,10 +205,10 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm --n
 Все парсинги идут через Laravel Queue Jobs, брокер — Redis. Контейнер `queue-worker` выполняет:
 
 ```bash
-php artisan queue:work --sleep=1 --tries=3 --backoff=60 --timeout=90
+php artisan queue:work --sleep=1 --tries=3 --backoff=60 --timeout=240
 ```
 
-У самой джобы тоже `$tries = 3` и `$backoff = 60`: после необработанного исключения Laravel подождёт 60 секунд и повторит попытку (до трёх раз).
+У самой джобы тоже `$tries = 3`, `$backoff = 60` и `$timeout = 240`: после транзиентного сбоя Laravel подождёт 60 секунд и повторит попытку (до трёх раз). Смена схемы JSON (`SourceChangedException`) и `Rate limited` **не** ретраятся — сразу `failed`. `REDIS_QUEUE_RETRY_AFTER=300`, чтобы воркер не отдал ту же джобу второму процессу, пока первый ещё парсит.
 
 Прогресс уходит на Node.js WS-сервер обычным HTTP; клиенты видят полосу «Загрузка отзывов: 127 / 580» в реальном времени.
 
@@ -257,7 +260,7 @@ php artisan queue:work --sleep=1 --tries=3 --backoff=60 --timeout=90
 
 ### Надёжность
 
-- [x] Воркер: `--tries=3 --backoff=60`.
+- [x] Воркер: `--tries=3 --backoff=60 --timeout=240`, `retry_after=300`.
 - [x] `HttpWsNotifier` глотает сетевые сбои и пишет warning в лог.
 - [x] Экспоненциальная пауза на 429/5xx; после трёх 429 — `Rate limited`.
 - [x] DTO (`ReviewDTO`, `OrganizationDataDTO`, `ParseProgressDTO`) объявлены как `readonly`.

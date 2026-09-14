@@ -17,6 +17,7 @@ use App\Services\WebSocket\HttpWsNotifier;
 use App\Services\WebSocket\WsNotifierInterface;
 use GuzzleHttp\Client;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -41,6 +42,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        if (! $this->app->environment('production')) {
+            return;
+        }
+
+        $secret = (string) config('services.ws_server.internal_secret');
+
+        if ($secret === '' || $secret === 'changeme' || strlen($secret) < 32) {
+            throw new RuntimeException(
+                'WS_INTERNAL_SECRET must be a random string of at least 32 characters in production.',
+            );
+        }
     }
 }

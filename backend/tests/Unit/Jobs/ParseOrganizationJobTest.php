@@ -8,6 +8,7 @@ use App\Enums\ParseStatus;
 use App\Jobs\ParseOrganizationJob;
 use App\Models\OrganizationSnapshot;
 use App\Services\Parser\Contracts\ParserInterface;
+use App\Services\Parser\Exceptions\SourceChangedException;
 use App\Services\WebSocket\WsNotifierInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -129,5 +130,30 @@ it('retries three times with a 60 second backoff', function () {
     $job = new ParseOrganizationJob(1, 1);
 
     expect($job->tries)->toBe(3)
-        ->and($job->backoff)->toBe(60);
+        ->and($job->backoff)->toBe(60)
+        ->and($job->timeout)->toBe(240);
+});
+
+it('marks the organization failed without retrying SourceChangedException', function () {
+    [$organization, $parseJob] = seedParseJob();
+
+    $parser = Mockery::mock(ParserInterface::class);
+    $parser->shouldReceive('parse')
+        ->once()
+        ->andThrow(new SourceChangedException('reviews[].id', ['sample' => true]));
+    app()->instance(ParserInterface::class, $parser);
+
+    $notifier = Mockery::mock(WsNotifierInterface::class);
+    $notifier->shouldReceive('sendProgress')->atLeast()->once();
+    app()->instance(WsNotifierInterface::class, $notifier);
+
+    $job = new ParseOrganizationJob($organization->id, $parseJob->id);
+    app()->call([$job, 'handle']);
+
+    $organization->refresh();
+    $parseJob->refresh();
+
+    expect($organization->parse_status)->toBe(ParseStatus::Failed)
+        ->and($organization->parse_error)->toBe('Structure changed: missing field reviews[].id')
+        ->and($parseJob->status)->toBe(ParseJobStatus::Failed);
 });
