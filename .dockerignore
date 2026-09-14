@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+!.env.example
+backend/vendor
+frontend/node_modules
+frontend/dist
+ws-server/node_modules
+docker/nginx/certs
+**/*.log

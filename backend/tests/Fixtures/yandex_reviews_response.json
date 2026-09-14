@@ -1,0 +1,26 @@
+{
+  "data": {
+    "reviews": [
+      {
+        "id": "review_id",
+        "author": {
+          "name": "Имя",
+          "uri": "https://yandex.ru/user/1"
+        },
+        "rating": 5,
+        "text": "Отличное место",
+        "createdTime": "2024-01-15T10:30:00Z"
+      },
+      {
+        "id": "review_id_2",
+        "author": {
+          "name": "Другой",
+          "uri": null
+        },
+        "rating": 4,
+        "text": null,
+        "createdTime": "2024-02-01T08:00:00Z"
+      }
+    ]
+  }
+}

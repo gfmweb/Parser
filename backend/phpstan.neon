@@ -1,0 +1,9 @@
+includes:
+    - vendor/nunomaduro/larastan/extension.neon
+
+parameters:
+    paths:
+        - app/
+    level: 8
+    # checkMissingIterableValueType удалён в PHPStan 2.x / Larastan 3 — ключ ломает analyse.
+
