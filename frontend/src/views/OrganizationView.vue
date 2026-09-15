@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import AppBreadcrumbs from '@/components/AppBreadcrumbs.vue';
 import AppNavbar from '@/components/AppNavbar.vue';
+import OrganizationSummary from '@/components/OrganizationSummary.vue';
 import Pagination from '@/components/Pagination.vue';
 import ReviewCard from '@/components/ReviewCard.vue';
+import ReviewRatingFilter from '@/components/ReviewRatingFilter.vue';
 import ReviewSkeleton from '@/components/ReviewSkeleton.vue';
-import StarRating from '@/components/StarRating.vue';
-import StatusBadge from '@/components/StatusBadge.vue';
 import { useParseProgress } from '@/composables/useParseProgress';
 import { useOrganizationStore } from '@/stores/organization';
+import type { RatingCounts } from '@/types';
+import { organizationDisplayName } from '@/utils/organizationTitle';
 
 const route = useRoute();
 const router = useRouter();
@@ -33,11 +36,33 @@ const page = computed(() => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 });
 
+const ratingFilter = computed((): number | null => {
+  const raw = route.query.rating;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const parsed = Number.parseInt(value ?? '', 10);
+
+  if (parsed >= 1 && parsed <= 5) {
+    return parsed;
+  }
+
+  return null;
+});
+
+const ratingCounts = computed((): RatingCounts | null => organizations.reviewsMeta?.rating_counts ?? null);
+
 const { progress, isConnected } = useParseProgress(organizationId);
 const organization = computed(() => organizations.currentOrganization);
 const isParsing = computed(
   () => organization.value?.parse_status === 'parsing' || progress.value?.status === 'parsing',
 );
+
+const breadcrumbCurrent = computed(() => {
+  if (organization.value === null) {
+    return 'Организация';
+  }
+
+  return organizationDisplayName(organization.value);
+});
 
 const parsedCount = computed(() => {
   if (progress.value !== null) {
@@ -69,33 +94,35 @@ const progressPercent = computed(() => {
 });
 
 watch(
-  organizationId,
-  async (id) => {
+  [organizationId, page, ratingFilter],
+  async ([id], previous) => {
     if (id <= 0) {
       return;
     }
 
-    skipReviewsScroll.value = true;
-    await Promise.all([organizations.fetchOne(id), organizations.fetchReviews(id, page.value)]).catch(
-      () => undefined,
-    );
+    const previousId = previous?.[0];
+    const orgChanged = previousId === undefined || previousId !== id;
+
+    if (orgChanged) {
+      skipReviewsScroll.value = true;
+      await Promise.all([
+        organizations.fetchOne(id),
+        organizations.fetchReviews(id, page.value, ratingFilter.value),
+      ]).catch(() => undefined);
+
+      return;
+    }
+
+    await organizations.fetchReviews(id, page.value, ratingFilter.value).catch(() => undefined);
+
+    if (!skipReviewsScroll.value) {
+      reviewsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    skipReviewsScroll.value = false;
   },
   { immediate: true },
 );
-
-watch(page, async (nextPage, previousPage) => {
-  if (organizationId.value <= 0 || nextPage === previousPage) {
-    return;
-  }
-
-  await organizations.fetchReviews(organizationId.value, nextPage).catch(() => undefined);
-
-  if (!skipReviewsScroll.value) {
-    reviewsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  skipReviewsScroll.value = false;
-});
 
 watch(
   () => progress.value,
@@ -109,7 +136,7 @@ watch(
     if (payload.status === 'done' || payload.status === 'failed') {
       await Promise.all([
         organizations.fetchOne(organizationId.value),
-        organizations.fetchReviews(organizationId.value, page.value),
+        organizations.fetchReviews(organizationId.value, page.value, ratingFilter.value),
       ]).catch(() => undefined);
     }
   },
@@ -124,80 +151,86 @@ async function onPageChange(nextPage: number): Promise<void> {
     },
   });
 }
+
+async function onRatingSelect(rating: number | null): Promise<void> {
+  skipReviewsScroll.value = true;
+  const query = { ...route.query, page: '1' };
+
+  if (rating === null) {
+    delete query.rating;
+  } else {
+    query.rating = String(rating);
+  }
+
+  await router.replace({ query });
+}
+
+function onBack(): void {
+  void router.push({ name: 'dashboard' });
+}
 </script>
 
 <template>
-  <div class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-8">
+  <div class="mx-auto flex min-h-screen w-full min-w-0 max-w-7xl flex-col gap-6 px-4 py-8">
     <AppNavbar />
-
-    <section v-if="organizations.isLoadingCurrent && organization === null" class="glass-panel space-y-4 p-8">
-      <div class="skeleton h-8 w-1/2" />
-      <div class="skeleton h-4 w-2/3" />
-      <div class="skeleton h-6 w-40" />
-    </section>
-
-    <template v-else-if="organization !== null">
-      <section class="glass-panel p-8">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p class="text-sm text-indigo-300">Организация</p>
-            <h1 class="mt-1 text-2xl font-semibold text-white">
-              {{ organization.name ?? organization.yandex_url }}
-            </h1>
-            <p v-if="organization.address" class="mt-2 text-slate-300">{{ organization.address }}</p>
-          </div>
-          <StatusBadge :status="organization.parse_status" />
-        </div>
-        <p
-          v-if="organization.parse_status === 'failed' && organization.parse_error"
-          class="mt-3 text-sm text-red-300"
-        >
-          {{ organization.parse_error }}
-        </p>
-
-        <div class="mt-6 flex flex-wrap items-end gap-8">
-          <div>
-            <StarRating :rating="organization.rating" size="lg" show-value />
-            <p class="mt-1 text-sm text-slate-400">{{ organization.rating_count }} оценок</p>
-          </div>
-          <p class="text-slate-200">{{ organization.review_count }} отзывов</p>
-        </div>
-      </section>
-
-      <section v-if="isParsing" class="glass-panel p-6">
-        <div class="mb-3 flex items-center justify-between text-sm text-slate-300">
-          <p>Загрузка отзывов: {{ parsedCount }} / {{ totalCount }}</p>
-          <span class="text-xs text-slate-400">{{ isConnected ? 'live' : 'переподключение…' }}</span>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill" :style="{ width: `${progressPercent}%` }" />
-        </div>
-      </section>
-    </template>
+    <AppBreadcrumbs :current="breadcrumbCurrent" />
 
     <p v-if="organizations.error" class="text-sm text-red-300">{{ organizations.error }}</p>
 
-    <section ref="reviewsSection" class="space-y-4">
-      <h2 class="text-lg font-semibold text-white">Отзывы</h2>
+    <div class="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(16rem,20rem)_1fr]">
+      <aside class="flex min-w-0 flex-col gap-4 lg:sticky lg:top-6">
+        <section
+          v-if="organizations.isLoadingCurrent && organization === null"
+          class="glass-panel space-y-4 p-6"
+        >
+          <div class="skeleton h-8 w-1/2" />
+          <div class="skeleton h-4 w-2/3" />
+          <div class="skeleton h-6 w-40" />
+        </section>
+        <OrganizationSummary
+          v-else-if="organization !== null"
+          :organization="organization"
+          @back="onBack"
+        />
 
-      <div v-if="organizations.isLoadingReviews" class="space-y-4">
-        <ReviewSkeleton v-for="item in skeletonItems" :key="item" />
-      </div>
+        <section v-if="isParsing" class="glass-panel p-6">
+          <div class="mb-3 flex items-center justify-between text-sm text-slate-300">
+            <p>Загрузка отзывов: {{ parsedCount }} / {{ totalCount }}</p>
+            <span class="text-xs text-slate-400">{{ isConnected ? 'live' : 'переподключение…' }}</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: `${progressPercent}%` }" />
+          </div>
+        </section>
 
-      <p v-else-if="organizations.reviews.length === 0" class="glass-panel p-8 text-slate-300">
-        Отзывов пока нет.
-      </p>
+        <ReviewRatingFilter
+          v-if="ratingCounts !== null"
+          :counts="ratingCounts"
+          :selected="ratingFilter"
+          @select="onRatingSelect"
+        />
+      </aside>
 
-      <div v-else class="space-y-4">
-        <ReviewCard v-for="review in organizations.reviews" :key="review.id" :review="review" />
-      </div>
+      <section ref="reviewsSection" class="min-w-0 space-y-4">
+        <div v-if="organizations.isLoadingReviews" class="grid gap-4 lg:grid-cols-2">
+          <ReviewSkeleton v-for="item in skeletonItems" :key="item" />
+        </div>
 
-      <Pagination
-        v-if="organizations.reviewsMeta"
-        :current-page="organizations.reviewsMeta.current_page"
-        :last-page="organizations.reviewsMeta.last_page"
-        @page-change="onPageChange"
-      />
-    </section>
+        <p v-else-if="organizations.reviews.length === 0" class="glass-panel p-8 text-slate-300">
+          {{ ratingFilter !== null ? 'Нет отзывов с такой оценкой.' : 'Отзывов пока нет.' }}
+        </p>
+
+        <div v-else class="grid gap-4 lg:grid-cols-2">
+          <ReviewCard v-for="review in organizations.reviews" :key="review.id" :review="review" />
+        </div>
+
+        <Pagination
+          v-if="organizations.reviewsMeta"
+          :current-page="organizations.reviewsMeta.current_page"
+          :last-page="organizations.reviewsMeta.last_page"
+          @page-change="onPageChange"
+        />
+      </section>
+    </div>
   </div>
 </template>

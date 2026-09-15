@@ -6,6 +6,7 @@ namespace App\Services\Parser;
 
 use App\Services\Parser\Exceptions\OrganizationNotFoundException;
 use App\Services\Parser\Exceptions\ParserException;
+use App\Services\Parser\Exceptions\RateLimitedException;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\ConnectException;
@@ -19,9 +20,13 @@ class YandexApiClient
 {
     private const BASE_URI = 'https://yandex.ru';
 
-    private const TIMEOUT_SECONDS = 20.0;
+    private const TIMEOUT_SECONDS = 40.0;
 
     private const MAX_ATTEMPTS = 3;
+
+    private const INCOMPLETE_SSR_ATTEMPTS = 3;
+
+    private const INCOMPLETE_SSR_DELAY_MICROSECONDS = 200_000;
 
     /** @var list<string> */
     private const USER_AGENTS = [
@@ -59,28 +64,28 @@ class YandexApiClient
     /**
      * @return array<string, mixed>
      */
-    public function getOrgInfo(string $orgId): array
+    public function getOrgInfo(string $orgId, ?string $slug = null): array
     {
-        return $this->getReviewsPage($orgId, 1);
+        return $this->getReviewsPage($orgId, 1, $slug);
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function getReviews(string $orgId, int $offset, int $limit = 50): array
+    public function getReviews(string $orgId, int $offset, int $limit = 50, ?string $slug = null): array
     {
         $pageSize = max($limit, 1);
         $page = intdiv(max($offset, 0), $pageSize) + 1;
 
-        return $this->getReviewsPage($orgId, $page);
+        return $this->getReviewsPage($orgId, $page, $slug);
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function getReviewsPage(string $orgId, int $page): array
+    public function getReviewsPage(string $orgId, int $page, ?string $slug = null): array
     {
-        return $this->getHtmlState('/maps/org/'.$orgId.'/reviews/', [
+        return $this->getHtmlState($this->reviewsPath($orgId, $slug), [
             'page' => max($page, 1),
         ]);
     }
@@ -91,6 +96,26 @@ class YandexApiClient
      */
     private function getHtmlState(string $path, array $query): array
     {
+        $state = $this->requestHtmlState($path, $query);
+
+        for ($attempt = 1; $attempt < self::INCOMPLETE_SSR_ATTEMPTS; $attempt++) {
+            if (! $this->shouldRetryIncompleteSsr($state)) {
+                return $state;
+            }
+
+            usleep(self::INCOMPLETE_SSR_DELAY_MICROSECONDS);
+            $state = $this->requestHtmlState($path, $query);
+        }
+
+        return $state;
+    }
+
+    /**
+     * @param  array<string, scalar>  $query
+     * @return array<string, mixed>
+     */
+    private function requestHtmlState(string $path, array $query): array
+    {
         try {
             $response = $this->http->request('GET', $path, [
                 'query' => $query,
@@ -99,27 +124,51 @@ class YandexApiClient
                 ],
             ]);
         } catch (GuzzleException $exception) {
-            throw new ParserException('Failed to reach Yandex Maps API.', 0, $exception);
+            throw new ParserException('Не удалось получить данные с Яндекс Карт.', 0, $exception);
         }
 
         $status = $response->getStatusCode();
 
         if ($status === 404) {
-            throw new OrganizationNotFoundException('Organization not found.');
+            throw new OrganizationNotFoundException('Организация не найдена в Яндекс Картах.');
         }
 
         if ($status === 429) {
-            throw new ParserException('Rate limited');
+            throw new RateLimitedException;
         }
 
         if ($status >= 400) {
-            throw new ParserException("Yandex API request failed with HTTP {$status}.");
+            throw new ParserException('Не удалось получить данные с Яндекс Карт.');
         }
 
         return $this->extractor->extract((string) $response->getBody());
     }
 
-    private static function retryMiddleware(): callable
+    /**
+     * @param  array<string, mixed>  $state
+     */
+    private function shouldRetryIncompleteSsr(array $state): bool
+    {
+        if (YandexMapsStateExtractor::hasReviewResults($state)) {
+            return false;
+        }
+
+        $item = YandexMapsStateExtractor::businessItem($state);
+        $reviewCount = is_array($item) ? ($item['ratingData']['reviewCount'] ?? 0) : 0;
+
+        return is_numeric($reviewCount) && (int) $reviewCount > 0;
+    }
+
+    private function reviewsPath(string $orgId, ?string $slug): string
+    {
+        if ($slug !== null && $slug !== '' && ! ctype_digit($slug)) {
+            return '/maps/org/'.$slug.'/'.$orgId.'/reviews/';
+        }
+
+        return '/maps/org/'.$orgId.'/reviews/';
+    }
+
+    public static function retryMiddleware(): callable
     {
         return Middleware::retry(
             static function (int $retries, RequestInterface $request, ?ResponseInterface $response, ?\Throwable $exception): bool {
@@ -127,7 +176,7 @@ class YandexApiClient
                     return false;
                 }
 
-                if ($exception instanceof ConnectException || $exception !== null) {
+                if ($exception instanceof ConnectException) {
                     return true;
                 }
 
@@ -137,7 +186,7 @@ class YandexApiClient
 
                 $status = $response->getStatusCode();
 
-                return $status === 429 || $status >= 500;
+                return $status >= 500;
             },
             static function (int $retries): int {
                 return (2 ** $retries) * 1000;

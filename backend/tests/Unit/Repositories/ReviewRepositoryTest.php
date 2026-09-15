@@ -87,6 +87,24 @@ it('upsertBatch with 1 existing and 1 new updates existing and creates one', fun
         ->and($updated?->text)->toBe('updated');
 });
 
+it('upsertBatch chunks more than 500 reviews', function () {
+    $user = User::factory()->create();
+    $organization = Organization::query()->create([
+        'user_id' => $user->id,
+        'yandex_url' => 'https://yandex.ru/maps/org/upsert-chunk',
+    ]);
+
+    $reviews = [];
+    for ($i = 1; $i <= 501; $i++) {
+        $reviews[] = makeReviewDto('rev-chunk-'.$i, 5);
+    }
+
+    $affected = app(ReviewRepositoryInterface::class)->upsertBatch($organization->id, $reviews);
+
+    expect($affected)->toBe(501)
+        ->and(Review::query()->where('organization_id', $organization->id)->count())->toBe(501);
+});
+
 it('paginateByOrganization returns 50 per page', function () {
     $user = User::factory()->create();
     $organization = Organization::query()->create([
@@ -115,4 +133,47 @@ it('paginateByOrganization page 2 skips first 50', function () {
     expect($page->currentPage())->toBe(2)
         ->and($page->count())->toBe(5)
         ->and($page->first()?->yandex_review_id)->toBe('rev-51');
+});
+
+it('paginateByOrganization filters by rating', function () {
+    $user = User::factory()->create();
+    $organization = Organization::query()->create([
+        'user_id' => $user->id,
+        'yandex_url' => 'https://yandex.ru/maps/org/paginate-rating',
+    ]);
+
+    $repository = app(ReviewRepositoryInterface::class);
+    $repository->upsertBatch($organization->id, [
+        makeReviewDto('rev-5', 5),
+        makeReviewDto('rev-4', 4),
+        makeReviewDto('rev-3', 3),
+    ]);
+
+    $page = $repository->paginateByOrganization($organization->id, 1, 50, 5);
+
+    expect($page->total())->toBe(1)
+        ->and($page->first()?->yandex_review_id)->toBe('rev-5');
+});
+
+it('countByRating fills missing stars with zero', function () {
+    $user = User::factory()->create();
+    $organization = Organization::query()->create([
+        'user_id' => $user->id,
+        'yandex_url' => 'https://yandex.ru/maps/org/count-rating',
+    ]);
+
+    $repository = app(ReviewRepositoryInterface::class);
+    $repository->upsertBatch($organization->id, [
+        makeReviewDto('rev-5a', 5),
+        makeReviewDto('rev-5b', 5),
+        makeReviewDto('rev-1', 1),
+    ]);
+
+    expect($repository->countByRating($organization->id))->toBe([
+        1 => 1,
+        2 => 0,
+        3 => 0,
+        4 => 0,
+        5 => 2,
+    ]);
 });

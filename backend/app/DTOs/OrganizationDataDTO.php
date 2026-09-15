@@ -17,5 +17,6 @@ readonly class OrganizationDataDTO
         public int $ratingCount,
         public int $reviewCount,
         public array $reviews,
+        public bool $incomplete = false,
     ) {}
 }

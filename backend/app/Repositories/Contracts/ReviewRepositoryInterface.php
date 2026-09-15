@@ -18,5 +18,10 @@ interface ReviewRepositoryInterface
     /**
      * @return LengthAwarePaginator<int, Review>
      */
-    public function paginateByOrganization(int $organizationId, int $page, int $perPage = 50): LengthAwarePaginator;
+    public function paginateByOrganization(int $organizationId, int $page, int $perPage = 50, ?int $rating = null): LengthAwarePaginator;
+
+    /**
+     * @return array{1: int, 2: int, 3: int, 4: int, 5: int}
+     */
+    public function countByRating(int $organizationId): array;
 }

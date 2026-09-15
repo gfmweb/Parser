@@ -45,6 +45,17 @@ export interface ParseProgressPayload {
   parsed: number;
   status: 'parsing' | 'done' | 'failed';
   error: string | null;
+  name?: string | null;
+  rating?: number | null;
+  address?: string | null;
+}
+
+export interface RatingCounts {
+  1: number;
+  2: number;
+  3: number;
+  4: number;
+  5: number;
 }
 
 export interface PaginatedMeta {
@@ -52,6 +63,7 @@ export interface PaginatedMeta {
   last_page: number;
   total: number;
   per_page: number;
+  rating_counts?: RatingCounts;
 }
 
 export interface PaginatedResponse<T> {

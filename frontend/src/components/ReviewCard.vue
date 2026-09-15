@@ -25,7 +25,7 @@ const displayedText = computed(() => {
 </script>
 
 <template>
-  <article class="glass-panel p-5">
+  <article class="glass-panel flex h-full flex-col p-5">
     <div class="flex items-start gap-3">
       <div
         class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
@@ -35,14 +35,14 @@ const displayedText = computed(() => {
       </div>
       <div class="min-w-0 flex-1">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <p class="font-medium text-white">{{ author }}</p>
+          <p class="break-words font-medium text-white">{{ author }}</p>
           <time class="text-xs text-slate-400">{{ formatReviewDate(review.reviewed_at) }}</time>
         </div>
         <StarRating class="mt-1" :rating="review.rating" />
       </div>
     </div>
 
-    <p v-if="text !== ''" class="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-200">
+    <p v-if="text !== ''" class="mt-3 break-words whitespace-pre-wrap text-sm leading-6 text-slate-200">
       {{ displayedText }}
     </p>
     <button

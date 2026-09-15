@@ -10,6 +10,6 @@ final class OrganizationAlreadyParsingException extends RuntimeException
 {
     public function __construct()
     {
-        parent::__construct('Organization is already being parsed.');
+        parent::__construct('Организация уже парсится.');
     }
 }

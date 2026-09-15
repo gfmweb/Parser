@@ -14,6 +14,18 @@ class LoginRequest extends FormRequest
     }
 
     /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'email.required' => 'Укажите email.',
+            'email.email' => 'Укажите корректный email.',
+            'password.required' => 'Укажите пароль.',
+        ];
+    }
+
+    /**
      * @return array<string, list<string>>
      */
     public function rules(): array

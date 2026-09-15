@@ -9,7 +9,6 @@ use App\Http\Requests\StoreOrganizationRequest;
 use App\Http\Resources\OrganizationResource;
 use App\Http\Resources\ParseJobResource;
 use App\Models\Organization;
-use App\Models\User;
 use App\Repositories\Contracts\OrganizationRepositoryInterface;
 use App\Services\Organization\OrganizationService;
 use Illuminate\Http\JsonResponse;
@@ -26,12 +25,7 @@ class OrganizationController extends Controller
     {
         $this->authorize('viewAny', Organization::class);
 
-        $user = $request->user();
-
-        if (! $user instanceof User) {
-            return $this->apiError('Unauthenticated.', 401);
-        }
-
+        $user = $this->authenticatedUser($request);
         $page = max(1, $request->integer('page', 1));
         $paginator = $this->organizationRepository->paginateForUser($user->id, $page);
 
@@ -45,13 +39,7 @@ class OrganizationController extends Controller
     {
         $this->authorize('create', Organization::class);
 
-        $user = $request->user();
-
-        if (! $user instanceof User) {
-            return $this->apiError('Unauthenticated.', 401);
-        }
-
-        $organization = $this->organizations->create($user, $request->organizationUrl());
+        $organization = $this->organizations->create($this->authenticatedUser($request), $request->organizationUrl());
 
         return $this->apiSuccess(new OrganizationResource($organization), 201);
     }
@@ -71,7 +59,7 @@ class OrganizationController extends Controller
 
         $organization->delete();
 
-        return $this->apiSuccess(['message' => 'Organization deleted']);
+        return $this->apiSuccess(['message' => 'Организация удалена.']);
     }
 
     public function triggerParse(Organization $organization): JsonResponse

@@ -74,7 +74,7 @@ it('throws SourceChangedException and logs when required fields are missing', fu
     ];
 
     expect(fn () => $mapper->map($payload))
-        ->toThrow(SourceChangedException::class, 'Structure changed: missing field reviews[].reviewId');
+        ->toThrow(SourceChangedException::class, 'Не удалось разобрать страницу Яндекса. Попробуйте позже.');
 
     $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -93,7 +93,7 @@ it('throws SourceChangedException when reviews id is missing', function () use (
             'rating' => 5,
             'updatedTime' => '2024-01-15T10:30:00Z',
         ]],
-    ]))->toThrow(SourceChangedException::class, 'Structure changed: missing field reviews[].reviewId');
+    ]))->toThrow(SourceChangedException::class, 'Не удалось разобрать страницу Яндекса. Попробуйте позже.');
 });
 
 it('throws SourceChangedException when reviews rating is missing', function () use ($mapper) {
@@ -102,7 +102,7 @@ it('throws SourceChangedException when reviews rating is missing', function () u
             'reviewId' => 'review_id',
             'updatedTime' => '2024-01-15T10:30:00Z',
         ]],
-    ]))->toThrow(SourceChangedException::class, 'Structure changed: missing field reviews[].rating');
+    ]))->toThrow(SourceChangedException::class, 'Не удалось разобрать страницу Яндекса. Попробуйте позже.');
 });
 
 it('throws SourceChangedException when reviews updatedTime is missing', function () use ($mapper) {
@@ -111,7 +111,7 @@ it('throws SourceChangedException when reviews updatedTime is missing', function
             'reviewId' => 'review_id',
             'rating' => 5,
         ]],
-    ]))->toThrow(SourceChangedException::class, 'Structure changed: missing field reviews[].updatedTime');
+    ]))->toThrow(SourceChangedException::class, 'Не удалось разобрать страницу Яндекса. Попробуйте позже.');
 });
 
 it('skips reviews with rating outside 1-5', function () use ($mapper) {
@@ -149,7 +149,7 @@ it('logs only the first 1000 characters of the raw json sample', function () {
 
     $exception = new SourceChangedException('reviews[].reviewId', $payload);
 
-    expect($exception->getMessage())->toBe('Structure changed: missing field reviews[].reviewId');
+    expect($exception->getMessage())->toBe('Не удалось разобрать страницу Яндекса. Попробуйте позже.');
 
     Log::shouldHaveReceived('error')
         ->once()

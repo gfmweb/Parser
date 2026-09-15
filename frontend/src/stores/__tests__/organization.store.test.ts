@@ -63,7 +63,7 @@ describe('useOrganizationStore', () => {
     const store = useOrganizationStore();
     await store.fetchAll();
 
-    expect(getMock).toHaveBeenCalledWith('/organizations');
+    expect(getMock).toHaveBeenCalledWith('/organizations', { params: { page: 1 } });
     expect(store.organizations).toHaveLength(1);
     expect(store.organizations[0]?.id).toBe(7);
   });
@@ -92,5 +92,199 @@ describe('useOrganizationStore', () => {
 
     expect(postMock).toHaveBeenCalledWith('/organizations/7/parse');
     expect(store.organizations[0]?.parse_status).toBe('parsing');
+  });
+
+  it('applyProgress marks a listed organization as done', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        data: [{ ...organization, parse_status: 'parsing' }],
+        meta: { current_page: 1, last_page: 1, total: 1, per_page: 20 },
+      },
+    });
+
+    const store = useOrganizationStore();
+    await store.fetchAll();
+    store.applyProgress({
+      organizationId: 7,
+      parseJobId: 3,
+      total: 600,
+      parsed: 600,
+      status: 'done',
+      error: null,
+    });
+
+    expect(store.organizations[0]?.parse_status).toBe('done');
+    expect(store.organizations[0]?.review_count).toBe(600);
+    expect(store.organizations[0]?.parse_error).toBeNull();
+  });
+
+  it('applyProgress localizes a stored English parse_error', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        data: [{ ...organization, parse_status: 'parsing' }],
+        meta: { current_page: 1, last_page: 1, total: 1, per_page: 20 },
+      },
+    });
+
+    const store = useOrganizationStore();
+    await store.fetchAll();
+    store.applyProgress({
+      organizationId: 7,
+      parseJobId: 3,
+      total: 0,
+      parsed: 0,
+      status: 'failed',
+      error: 'Structure changed: missing field data',
+    });
+
+    expect(store.organizations[0]?.parse_status).toBe('failed');
+    expect(store.organizations[0]?.parse_error).toBe(
+      'Не удалось разобрать страницу Яндекса. Попробуйте позже.',
+    );
+  });
+
+  it('applyProgress patches name from an in-progress payload', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        data: [{ ...organization, parse_status: 'parsing' }],
+        meta: { current_page: 1, last_page: 1, total: 1, per_page: 20 },
+      },
+    });
+
+    const store = useOrganizationStore();
+    await store.fetchAll();
+    store.applyProgress({
+      organizationId: 7,
+      parseJobId: 3,
+      total: 600,
+      parsed: 50,
+      status: 'parsing',
+      error: null,
+      name: 'Своя компания',
+      rating: 4.7,
+      address: 'Уфа',
+    });
+
+    expect(store.organizations[0]?.parse_status).toBe('parsing');
+    expect(store.organizations[0]?.name).toBe('Своя компания');
+    expect(store.organizations[0]?.rating).toBe(4.7);
+    expect(store.organizations[0]?.address).toBe('Уфа');
+  });
+
+  it('fetchReviews sends rating when a filter is selected', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        data: [],
+        meta: {
+          current_page: 1,
+          last_page: 1,
+          total: 0,
+          per_page: 50,
+          rating_counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 10 },
+        },
+      },
+    });
+
+    const store = useOrganizationStore();
+    await store.fetchReviews(7, 1, 5);
+
+    expect(getMock).toHaveBeenCalledWith('/organizations/7/reviews', {
+      params: { page: 1, rating: 5 },
+    });
+  });
+
+  it('fetchReviews omits rating when the filter is cleared', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        data: [],
+        meta: {
+          current_page: 1,
+          last_page: 1,
+          total: 0,
+          per_page: 50,
+          rating_counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 10 },
+        },
+      },
+    });
+
+    const store = useOrganizationStore();
+    await store.fetchReviews(7, 2, null);
+
+    expect(getMock).toHaveBeenCalledWith('/organizations/7/reviews', {
+      params: { page: 2 },
+    });
+  });
+
+  it('remove deletes the organization from the list', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        data: [organization],
+        meta: { current_page: 1, last_page: 1, total: 1, per_page: 20 },
+      },
+    });
+    deleteMock.mockResolvedValueOnce({ data: { message: 'Организация удалена.' } });
+
+    const store = useOrganizationStore();
+    await store.fetchAll();
+    await store.remove(7);
+
+    expect(deleteMock).toHaveBeenCalledWith('/organizations/7');
+    expect(store.organizations).toHaveLength(0);
+  });
+
+  it('fetchAll concatenates every page of organizations', async () => {
+    getMock
+      .mockResolvedValueOnce({
+        data: {
+          data: [organization],
+          meta: { current_page: 1, last_page: 2, total: 2, per_page: 20 },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ ...organization, id: 8, yandex_url: 'https://yandex.ru/maps/org/cafe/87654321/' }],
+          meta: { current_page: 2, last_page: 2, total: 2, per_page: 20 },
+        },
+      });
+
+    const store = useOrganizationStore();
+    await store.fetchAll();
+
+    expect(getMock).toHaveBeenNthCalledWith(1, '/organizations', { params: { page: 1 } });
+    expect(getMock).toHaveBeenNthCalledWith(2, '/organizations', { params: { page: 2 } });
+    expect(store.organizations.map((item) => item.id)).toEqual([7, 8]);
+  });
+
+  it('remove clears reviews of the deleted current organization', async () => {
+    deleteMock.mockResolvedValueOnce({ data: { message: 'Организация удалена.' } });
+
+    const store = useOrganizationStore();
+    store.currentOrganization = organization;
+    store.reviews = [
+      { id: 1, author_name: 'A', rating: 5, text: 'ok', reviewed_at: null },
+    ];
+    store.reviewsMeta = { current_page: 1, last_page: 1, total: 1, per_page: 50 };
+    store.organizations = [organization];
+
+    await store.remove(7);
+
+    expect(store.currentOrganization).toBeNull();
+    expect(store.reviews).toEqual([]);
+    expect(store.reviewsMeta).toBeNull();
+  });
+
+  it('remove does not write a global error when the request fails', async () => {
+    deleteMock.mockRejectedValueOnce({
+      message: 'Не удалось удалить организацию.',
+      errors: {},
+      status: 500,
+    });
+
+    const store = useOrganizationStore();
+    store.organizations = [organization];
+
+    await expect(store.remove(7)).rejects.toMatchObject({ status: 500 });
+    expect(store.error).toBeNull();
+    expect(store.organizations).toHaveLength(1);
   });
 });

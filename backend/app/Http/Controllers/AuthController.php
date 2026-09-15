@@ -17,7 +17,7 @@ class AuthController extends Controller
         $user = User::query()->where('email', $request->email())->first();
 
         if ($user === null || ! Hash::check($request->password(), $user->password)) {
-            return $this->apiError('Invalid credentials.', 401);
+            return $this->apiError('Неверный email или пароль.', 401);
         }
 
         $token = $user->createToken('api')->plainTextToken;
@@ -34,25 +34,16 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        if (! $user instanceof User) {
-            return $this->apiError('Unauthenticated.', 401);
-        }
-
+        $user = $this->authenticatedUser($request);
         $token = $user->currentAccessToken();
         $token->delete();
 
-        return $this->apiSuccess(['message' => 'Logged out']);
+        return $this->apiSuccess(['message' => 'Вы вышли из системы.']);
     }
 
     public function me(Request $request): JsonResponse
     {
-        $user = $request->user();
-
-        if (! $user instanceof User) {
-            return $this->apiError('Unauthenticated.', 401);
-        }
+        $user = $this->authenticatedUser($request);
 
         return $this->apiSuccess([
             'id' => $user->id,

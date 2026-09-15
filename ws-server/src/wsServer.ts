@@ -2,13 +2,15 @@ import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Logger } from 'winston';
 import { type RawData, WebSocket, WebSocketServer } from 'ws';
 import type { Broadcaster } from './broadcaster.js';
+import type { OrganizationAccessChecker } from './laravelAuth.js';
 import { clientSubscribeMessageSchema } from './schemas.js';
-import type { WsMessage } from './types.js';
+import { organizationIdFromChannel, type WsMessage } from './types.js';
 
 export function attachWebSocketServer(
   httpServer: HttpServer,
   broadcaster: Broadcaster,
   logger: Logger,
+  accessChecker: OrganizationAccessChecker,
 ): WebSocketServer {
   const wss = new WebSocketServer({ server: httpServer });
 
@@ -16,7 +18,7 @@ export function attachWebSocketServer(
     logger.info('ws connected', { connections: wss.clients.size });
 
     ws.on('message', (raw: RawData) => {
-      handleClientMessage(ws, raw, broadcaster, logger);
+      void handleClientMessage(ws, raw, broadcaster, logger, accessChecker);
     });
 
     ws.on('close', () => {
@@ -33,12 +35,13 @@ export function attachWebSocketServer(
   return wss;
 }
 
-function handleClientMessage(
+export async function handleClientMessage(
   ws: WebSocket,
   raw: RawData,
   broadcaster: Broadcaster,
   logger: Logger,
-): void {
+  accessChecker: OrganizationAccessChecker,
+): Promise<void> {
   const text = toText(raw);
   let parsedJson: unknown;
 
@@ -56,6 +59,21 @@ function handleClientMessage(
     return;
   }
 
+  const organizationId = organizationIdFromChannel(parsed.data.channel);
+
+  if (organizationId === null) {
+    sendError(ws, parsed.data.channel, 'Forbidden');
+    return;
+  }
+
+  const allowed = await accessChecker.canAccess(parsed.data.token, organizationId);
+
+  if (!allowed) {
+    sendError(ws, parsed.data.channel, 'Forbidden');
+    logger.info('ws subscribe denied', { channel: parsed.data.channel });
+    return;
+  }
+
   broadcaster.subscribe(parsed.data.channel, ws);
   logger.info('ws subscribed', {
     channel: parsed.data.channel,
@@ -63,17 +81,23 @@ function handleClientMessage(
   });
 }
 
-function rejectClient(ws: WebSocket, message: string): void {
+function sendError(ws: WebSocket, channel: string, message: string): void {
   const errorMessage: WsMessage = {
     type: 'error',
-    channel: 'unknown',
+    channel,
     message,
   };
 
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(errorMessage), () => {
-      ws.close();
-    });
+    ws.send(JSON.stringify(errorMessage));
+  }
+}
+
+function rejectClient(ws: WebSocket, message: string): void {
+  sendError(ws, 'unknown', message);
+
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.close();
     return;
   }
 

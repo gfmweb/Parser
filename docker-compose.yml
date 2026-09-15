@@ -139,6 +139,7 @@ services:
       WS_HOST: 0.0.0.0
       WS_PORT: 6001
       WS_INTERNAL_SECRET: ${WS_INTERNAL_SECRET:-changeme}
+      LARAVEL_API_URL: ${LARAVEL_API_URL:-http://nginx/api}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:6001/health >/dev/null || exit 1"]
       interval: 10s

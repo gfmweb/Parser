@@ -33,3 +33,30 @@ it('throws on empty string', function () use ($parser) {
 it('throws when org id is missing', function () use ($parser) {
     $parser->extractOrgId('https://yandex.ru/maps/moscow');
 })->throws(InvalidArgumentException::class, 'Invalid Yandex Maps URL');
+
+it('canonicalizes yandex url by stripping query string', function () use ($parser) {
+    expect($parser->canonicalize(
+        'https://yandex.ru/maps/org/svoya_kompaniya/1123212619/?ll=55.989556%2C54.737533&z=17.69',
+    ))->toBe('https://yandex.ru/maps/org/svoya_kompaniya/1123212619/');
+});
+
+it('canonicalizes yandex url by stripping fragment', function () use ($parser) {
+    expect($parser->canonicalize(
+        'https://yandex.ru/maps/org/svoya_kompaniya/1123212619/#inside',
+    ))->toBe('https://yandex.ru/maps/org/svoya_kompaniya/1123212619/');
+});
+
+it('keeps borshch url path when there are no query params', function () use ($parser) {
+    $url = 'https://yandex.ru/maps/org/the_borshch/138203157812/';
+
+    expect($parser->canonicalize($url))->toBe($url);
+});
+
+it('extracts slug from org url', function () use ($parser) {
+    expect($parser->extractSlug('https://yandex.ru/maps/org/the_borshch/138203157812/'))
+        ->toBe('the_borshch');
+});
+
+it('returns null slug when org id is the path segment', function () use ($parser) {
+    expect($parser->extractSlug('https://yandex.ru/maps/org/138203157812/'))->toBeNull();
+});

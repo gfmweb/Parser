@@ -7,6 +7,9 @@ export const parseProgressPayloadSchema = z.object({
   parsed: z.number().int().nonnegative(),
   status: z.enum(['parsing', 'done', 'failed']),
   error: z.string().nullable(),
+  name: z.string().nullable().optional(),
+  rating: z.number().nullable().optional(),
+  address: z.string().nullable().optional(),
 });
 
 export const parseChannelSchema = z
@@ -16,6 +19,7 @@ export const parseChannelSchema = z
 const subscribeMessageSchema = z.object({
   type: z.literal('subscribe'),
   channel: parseChannelSchema,
+  token: z.string().min(1),
 });
 
 const progressMessageSchema = z.object({

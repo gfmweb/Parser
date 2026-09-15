@@ -1,4 +1,4 @@
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, ref } from 'vue';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useParseProgress } from '@/composables/useParseProgress';
@@ -35,13 +35,19 @@ class FakeWebSocket extends EventTarget {
   }
 }
 
-function mountProgress(organizationId: number, sockets: FakeWebSocket[], wsUrl = 'ws://localhost/ws') {
+function mountProgress(
+  organizationId: number | { value: number | readonly number[] },
+  sockets: FakeWebSocket[],
+  wsUrl = 'ws://localhost/ws',
+  token: string | null = 'test-token',
+) {
   let api: ReturnType<typeof useParseProgress> | undefined;
 
   const host = defineComponent({
     setup() {
       api = useParseProgress(organizationId, {
         wsUrl,
+        token,
         socketFactory: (url: string) => {
           const socket = new FakeWebSocket(url);
           sockets.push(socket);
@@ -81,7 +87,7 @@ describe('useParseProgress', () => {
 
     expect(api.isConnected.value).toBe(true);
     expect(sockets[0]?.sent).toEqual([
-      JSON.stringify({ type: 'subscribe', channel: 'parse.12' }),
+      JSON.stringify({ type: 'subscribe', channel: 'parse.12', token: 'test-token' }),
     ]);
 
     const payload: ParseProgressPayload = {
@@ -103,6 +109,33 @@ describe('useParseProgress', () => {
     await nextTick();
 
     expect(api.progress.value).toEqual(payload);
+
+    wrapper.unmount();
+  });
+
+  it('subscribes to every organization id on one socket', async () => {
+    const sockets: FakeWebSocket[] = [];
+    const ids = ref([17, 18]);
+    const { wrapper } = mountProgress(ids, sockets);
+
+    expect(sockets).toHaveLength(1);
+    sockets[0]?.open();
+    await nextTick();
+
+    expect(sockets[0]?.sent).toEqual([
+      JSON.stringify({ type: 'subscribe', channel: 'parse.17', token: 'test-token' }),
+      JSON.stringify({ type: 'subscribe', channel: 'parse.18', token: 'test-token' }),
+    ]);
+
+    ids.value = [17, 18, 19];
+    await nextTick();
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0]?.sent).toEqual([
+      JSON.stringify({ type: 'subscribe', channel: 'parse.17', token: 'test-token' }),
+      JSON.stringify({ type: 'subscribe', channel: 'parse.18', token: 'test-token' }),
+      JSON.stringify({ type: 'subscribe', channel: 'parse.19', token: 'test-token' }),
+    ]);
 
     wrapper.unmount();
   });
@@ -132,6 +165,18 @@ describe('useParseProgress', () => {
 
     await vi.advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(3);
+
+    wrapper.unmount();
+  });
+
+  it('does not subscribe without a token', async () => {
+    const sockets: FakeWebSocket[] = [];
+    const { wrapper } = mountProgress(12, sockets, 'ws://localhost/ws', null);
+
+    sockets[0]?.open();
+    await nextTick();
+
+    expect(sockets[0]?.sent).toEqual([]);
 
     wrapper.unmount();
   });

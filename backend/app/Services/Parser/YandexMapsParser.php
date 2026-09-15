@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Parser;
 
 use App\DTOs\OrganizationDataDTO;
+use App\DTOs\OrganizationMetaDTO;
 use App\DTOs\ReviewDTO;
 use App\Services\Parser\Contracts\ParserInterface;
 use App\Services\Parser\Exceptions\OrganizationNotFoundException;
@@ -23,17 +24,42 @@ final class YandexMapsParser implements ParserInterface
 
     /**
      * @param  (callable(int $parsed, int $total): void)|null  $onProgress
+     * @param  (callable(OrganizationMetaDTO $meta): void)|null  $onMeta
      */
-    public function parse(string $url, ?callable $onProgress = null): OrganizationDataDTO
+    public function parse(string $url, ?callable $onProgress = null, ?callable $onMeta = null): OrganizationDataDTO
     {
         $orgId = $this->urlParser->extractOrgId($url);
+        $slug = $this->urlParser->extractSlug($url);
         $reviews = [];
         $offset = 0;
-        $state = $this->client->getReviews($orgId, $offset, self::REVIEW_PAGE_SIZE);
+        $stoppedEarly = false;
+        $state = $this->client->getReviews($orgId, $offset, self::REVIEW_PAGE_SIZE, $slug);
         $meta = $this->extractOrgMeta($state);
 
+        if ($onMeta !== null) {
+            $onMeta(new OrganizationMetaDTO(
+                yandexId: $orgId,
+                name: $meta['name'],
+                address: $meta['address'],
+                rating: $meta['rating'],
+                ratingCount: $meta['ratingCount'],
+                reviewCount: $meta['reviewCount'],
+            ));
+        }
+
         while (true) {
-            $page = $this->mapper->map($this->reviewResults($state));
+            $reviewResults = $this->reviewResultsOrNull($state, $meta['reviewCount']);
+
+            if ($reviewResults === null) {
+                if ($reviews === []) {
+                    throw new SourceChangedException('stack.0.results.items.0.reviewResults', $state);
+                }
+
+                $stoppedEarly = true;
+                break;
+            }
+
+            $page = $this->mapper->map($reviewResults);
 
             foreach ($page as $review) {
                 $reviews[] = $review;
@@ -43,16 +69,18 @@ final class YandexMapsParser implements ParserInterface
                 $onProgress(count($reviews), $this->progressTotal($meta['reviewCount'], count($reviews)));
             }
 
-            if ($this->isLastReviewsPage($state)) {
+            if ($this->isLastReviewsPage($reviewResults)) {
                 break;
             }
 
             usleep(random_int(500_000, 1_500_000));
             $offset += self::REVIEW_PAGE_SIZE;
-            $state = $this->client->getReviews($orgId, $offset, self::REVIEW_PAGE_SIZE);
+            $state = $this->client->getReviews($orgId, $offset, self::REVIEW_PAGE_SIZE, $slug);
         }
 
-        $reviewCount = $meta['reviewCount'] > 0 ? $meta['reviewCount'] : count($reviews);
+        $reviewCount = $stoppedEarly
+            ? count($reviews)
+            : ($meta['reviewCount'] > 0 ? $meta['reviewCount'] : count($reviews));
 
         return new OrganizationDataDTO(
             yandexId: $orgId,
@@ -62,6 +90,7 @@ final class YandexMapsParser implements ParserInterface
             ratingCount: $meta['ratingCount'],
             reviewCount: $reviewCount,
             reviews: $reviews,
+            incomplete: $stoppedEarly,
         );
     }
 
@@ -75,7 +104,9 @@ final class YandexMapsParser implements ParserInterface
      */
     public function parseReviewsPage(string $orgId, int $offset, int $limit): array
     {
-        return $this->mapper->map($this->reviewResults($this->client->getReviews($orgId, $offset, $limit)));
+        $state = $this->client->getReviews($orgId, $offset, $limit);
+
+        return $this->mapper->map($this->reviewResults($state, $this->declaredReviewCount($state)));
     }
 
     /**
@@ -127,6 +158,12 @@ final class YandexMapsParser implements ParserInterface
      */
     private function orgItem(array $state): array
     {
+        $item = YandexMapsStateExtractor::businessItem($state);
+
+        if ($item !== null) {
+            return $item;
+        }
+
         $stack = $state['stack'] ?? null;
 
         if (! is_array($stack) || ! isset($stack[0]) || ! is_array($stack[0])) {
@@ -146,42 +183,72 @@ final class YandexMapsParser implements ParserInterface
         }
 
         if ($items === []) {
-            throw new OrganizationNotFoundException('Organization not found.');
+            throw new OrganizationNotFoundException('Организация не найдена в Яндекс Картах.');
         }
 
-        $item = $items[0] ?? null;
+        throw new SourceChangedException('stack.0.results.items.0', $state);
+    }
 
-        if (! is_array($item)) {
-            throw new SourceChangedException('stack.0.results.items.0', $state);
+    /**
+     * @param  array<string, mixed>  $state
+     * @return array<string, mixed>|null
+     */
+    private function reviewResultsOrNull(array $state, int $declaredReviewCount): ?array
+    {
+        $item = $this->orgItem($state);
+        $reviewResults = $item['reviewResults'] ?? null;
+
+        if (is_array($reviewResults)) {
+            /** @var array<string, mixed> $reviewResults */
+            return $reviewResults;
         }
 
-        /** @var array<string, mixed> $item */
-        return $item;
+        if ($declaredReviewCount === 0) {
+            return [
+                'reviews' => [],
+                'params' => [
+                    'page' => 1,
+                    'totalPages' => 1,
+                ],
+            ];
+        }
+
+        return null;
     }
 
     /**
      * @param  array<string, mixed>  $state
      * @return array<string, mixed>
      */
-    private function reviewResults(array $state): array
+    private function reviewResults(array $state, int $declaredReviewCount): array
     {
-        $item = $this->orgItem($state);
-        $reviewResults = $item['reviewResults'] ?? null;
+        $reviewResults = $this->reviewResultsOrNull($state, $declaredReviewCount);
 
-        if (! is_array($reviewResults)) {
+        if ($reviewResults === null) {
             throw new SourceChangedException('stack.0.results.items.0.reviewResults', $state);
         }
 
-        /** @var array<string, mixed> $reviewResults */
         return $reviewResults;
     }
 
     /**
      * @param  array<string, mixed>  $state
      */
-    private function isLastReviewsPage(array $state): bool
+    private function declaredReviewCount(array $state): int
     {
-        $reviewResults = $this->reviewResults($state);
+        $item = $this->orgItem($state);
+        $reviewCount = is_array($item['ratingData'] ?? null)
+            ? ($item['ratingData']['reviewCount'] ?? 0)
+            : 0;
+
+        return is_numeric($reviewCount) ? (int) $reviewCount : 0;
+    }
+
+    /**
+     * @param  array<string, mixed>  $reviewResults
+     */
+    private function isLastReviewsPage(array $reviewResults): bool
+    {
         $params = $reviewResults['params'] ?? null;
 
         if (is_array($params)) {

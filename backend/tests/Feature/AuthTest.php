@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Laravel\Sanctum\PersonalAccessToken;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    Cache::flush();
+});
 
 it('login returns token for valid credentials', function () {
     User::factory()->create([
@@ -61,7 +66,7 @@ it('login returns 401 for wrong password', function () {
         'email' => 'admin@test.com',
         'password' => 'wrong-password',
     ])->assertUnauthorized()
-        ->assertJsonPath('message', 'Invalid credentials.');
+        ->assertJsonPath('message', 'Неверный email или пароль.');
 });
 
 it('logout revokes token', function () {
@@ -71,7 +76,7 @@ it('logout revokes token', function () {
     $this->withToken($token)
         ->postJson('/api/logout')
         ->assertOk()
-        ->assertJsonPath('message', 'Logged out');
+        ->assertJsonPath('message', 'Вы вышли из системы.');
 
     expect(PersonalAccessToken::query()->count())->toBe(0);
 
@@ -83,7 +88,26 @@ it('logout revokes token', function () {
 });
 
 it('protected routes return 401 without token', function () {
-    $this->getJson('/api/user')->assertUnauthorized();
-    $this->postJson('/api/logout')->assertUnauthorized();
-    $this->getJson('/api/organizations')->assertUnauthorized();
+    $this->getJson('/api/user')
+        ->assertUnauthorized()
+        ->assertJsonPath('message', 'Необходимо войти в систему.');
+    $this->postJson('/api/logout')
+        ->assertUnauthorized()
+        ->assertJsonPath('message', 'Необходимо войти в систему.');
+    $this->getJson('/api/organizations')
+        ->assertUnauthorized()
+        ->assertJsonPath('message', 'Необходимо войти в систему.');
+});
+
+it('throttles login after five attempts', function () {
+    $payload = [
+        'email' => 'brute@test.com',
+        'password' => 'wrong-password',
+    ];
+
+    for ($attempt = 0; $attempt < 5; $attempt++) {
+        $this->postJson('/api/login', $payload)->assertUnauthorized();
+    }
+
+    $this->postJson('/api/login', $payload)->assertStatus(429);
 });

@@ -5,12 +5,18 @@ declare(strict_types=1);
 namespace App\Rules;
 
 use App\Models\Organization;
+use App\Services\Parser\YandexUrlParser;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Database\Eloquent\Builder;
+use InvalidArgumentException;
 
 final class UniqueOrganizationUrlForUser implements ValidationRule
 {
-    public function __construct(private readonly int $userId) {}
+    public function __construct(
+        private readonly int $userId,
+        private readonly YandexUrlParser $urlParser = new YandexUrlParser,
+    ) {}
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
@@ -18,13 +24,37 @@ final class UniqueOrganizationUrlForUser implements ValidationRule
             return;
         }
 
+        $canonical = $this->urlParser->canonicalize($value);
+        $incomingOrgId = $this->extractOrgIdOrNull($value);
+
         $exists = Organization::query()
             ->where('user_id', $this->userId)
-            ->where('yandex_url', $value)
+            ->where(function (Builder $query) use ($canonical, $incomingOrgId): void {
+                $query->where('yandex_url', $canonical);
+
+                if ($incomingOrgId === null) {
+                    return;
+                }
+
+                $query->orWhere('yandex_id', $incomingOrgId)
+                    ->orWhere('yandex_url', 'like', '%/org/'.$incomingOrgId)
+                    ->orWhere('yandex_url', 'like', '%/org/'.$incomingOrgId.'/%')
+                    ->orWhere('yandex_url', 'like', '%/org/%/'.$incomingOrgId)
+                    ->orWhere('yandex_url', 'like', '%/org/%/'.$incomingOrgId.'/%');
+            })
             ->exists();
 
         if ($exists) {
-            $fail('The organization URL has already been registered.');
+            $fail('Эта организация уже добавлена.');
+        }
+    }
+
+    private function extractOrgIdOrNull(string $url): ?string
+    {
+        try {
+            return $this->urlParser->extractOrgId($url);
+        } catch (InvalidArgumentException) {
+            return null;
         }
     }
 }

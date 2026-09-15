@@ -55,7 +55,7 @@ describe('useAuthStore', () => {
 
     await expect(store.login('admin@test.com', 'wrong')).rejects.toBeTruthy();
     expect(store.token).toBeNull();
-    expect(store.error).toBe('Invalid credentials.');
+    expect(store.error).toBe('Неверный email или пароль.');
     expect(localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull();
   });
 

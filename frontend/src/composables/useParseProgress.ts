@@ -1,4 +1,5 @@
 import { onUnmounted, ref, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue';
+import { getStoredToken } from '@/api/token';
 import type { ParseProgressPayload } from '@/types';
 import { resolveWebSocketUrl } from '@/utils/websocketUrl';
 
@@ -8,6 +9,7 @@ const RECONNECT_BASE_MS = 500;
 export interface ParseProgressOptions {
   socketFactory?: (url: string) => WebSocket;
   wsUrl?: string;
+  token?: MaybeRefOrGetter<string | null>;
 }
 
 interface IncomingProgressMessage {
@@ -17,7 +19,7 @@ interface IncomingProgressMessage {
 }
 
 export function useParseProgress(
-  organizationId: MaybeRefOrGetter<number>,
+  organizationIds: MaybeRefOrGetter<number | readonly number[]>,
   options: ParseProgressOptions = {},
 ): { progress: Ref<ParseProgressPayload | null>; isConnected: Ref<boolean> } {
   const progress = ref<ParseProgressPayload | null>(null);
@@ -28,6 +30,11 @@ export function useParseProgress(
   let attempts = 0;
   let generation = 0;
   let stopped = false;
+  const subscribed = new Set<number>();
+
+  function currentIds(): number[] {
+    return normalizeOrganizationIds(toValue(organizationIds));
+  }
 
   function clearReconnectTimer(): void {
     if (reconnectTimer !== null) {
@@ -52,6 +59,40 @@ export function useParseProgress(
 
     socket = null;
     isConnected.value = false;
+    subscribed.clear();
+  }
+
+  function currentToken(): string | null {
+    const value = options.token === undefined ? getStoredToken() : toValue(options.token);
+
+    if (value === null || value === '') {
+      return null;
+    }
+
+    return value;
+  }
+
+  function subscribeChannels(target: WebSocket, ids: number[]): void {
+    const token = currentToken();
+
+    if (token === null) {
+      return;
+    }
+
+    for (const id of ids) {
+      if (subscribed.has(id)) {
+        continue;
+      }
+
+      target.send(
+        JSON.stringify({
+          type: 'subscribe',
+          channel: `parse.${id}`,
+          token,
+        }),
+      );
+      subscribed.add(id);
+    }
   }
 
   function handleMessage(raw: string): void {
@@ -87,9 +128,15 @@ export function useParseProgress(
       return;
     }
 
-    const id = toValue(organizationId);
+    const ids = currentIds();
 
-    if (!Number.isInteger(id) || id <= 0) {
+    if (ids.length === 0) {
+      teardownSocket();
+      return;
+    }
+
+    if (socket !== null && socket.readyState === 1) {
+      subscribeChannels(socket, ids);
       return;
     }
 
@@ -109,12 +156,8 @@ export function useParseProgress(
 
       attempts = 0;
       isConnected.value = true;
-      nextSocket.send(
-        JSON.stringify({
-          type: 'subscribe',
-          channel: `parse.${id}`,
-        }),
-      );
+      subscribed.clear();
+      subscribeChannels(nextSocket, currentIds());
     });
 
     nextSocket.addEventListener('message', (event: Event) => {
@@ -136,16 +179,33 @@ export function useParseProgress(
 
       isConnected.value = false;
       socket = null;
+      subscribed.clear();
       scheduleReconnect();
     });
   }
 
   watch(
-    () => toValue(organizationId),
+    () => normalizeOrganizationIds(toValue(organizationIds)).join(','),
     () => {
       stopped = false;
+      const ids = currentIds();
+
+      if (progress.value !== null && !ids.includes(progress.value.organizationId)) {
+        progress.value = null;
+      }
+
+      if (ids.length === 0) {
+        attempts = 0;
+        teardownSocket();
+        return;
+      }
+
+      if (socket !== null && socket.readyState === 1) {
+        subscribeChannels(socket, ids);
+        return;
+      }
+
       attempts = 0;
-      progress.value = null;
       connect();
     },
     { immediate: true },
@@ -159,6 +219,19 @@ export function useParseProgress(
   });
 
   return { progress, isConnected };
+}
+
+export function normalizeOrganizationIds(value: number | readonly number[]): number[] {
+  const list = typeof value === 'number' ? [value] : [...value];
+  const unique = new Set<number>();
+
+  for (const id of list) {
+    if (Number.isInteger(id) && id > 0) {
+      unique.add(id);
+    }
+  }
+
+  return [...unique];
 }
 
 function isProgressMessage(value: unknown): value is IncomingProgressMessage {

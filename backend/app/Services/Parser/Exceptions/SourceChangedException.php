@@ -16,14 +16,14 @@ class SourceChangedException extends ParserException
         int $code = 0,
         ?Throwable $previous = null,
     ) {
-        $message = "Structure changed: missing field {$fieldName}";
+        $logMessage = "Structure changed: missing field {$fieldName}";
 
-        Log::error($message, [
+        Log::error($logMessage, [
             'field' => $fieldName,
             'json' => self::previewJson($jsonSample),
         ]);
 
-        parent::__construct($message, $code, $previous);
+        parent::__construct('Не удалось разобрать страницу Яндекса. Попробуйте позже.', $code, $previous);
     }
 
     private static function previewJson(mixed $jsonSample): string

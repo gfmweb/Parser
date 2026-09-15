@@ -9,11 +9,11 @@ const props = defineProps<{
 const label = computed(() => {
   switch (props.status) {
     case 'pending':
-      return 'pending';
+      return 'В очереди';
     case 'parsing':
-      return 'parsing';
+      return 'Парсинг';
     case 'done':
-      return 'done';
+      return 'Готово';
     case 'failed':
       return 'Ошибка парсера';
     default:

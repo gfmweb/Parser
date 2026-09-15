@@ -22,7 +22,7 @@ class ParseJobController extends Controller
         $parseJob = $this->parseJobs->latestForOrganization($organization->id);
 
         if ($parseJob === null) {
-            return $this->apiError('Parse job not found.', 404);
+            return $this->apiError('Задача парсинга не найдена.', 404);
         }
 
         return $this->apiSuccess(new ParseJobResource($parseJob));

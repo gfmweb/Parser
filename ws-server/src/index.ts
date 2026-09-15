@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { Broadcaster } from './broadcaster.js';
 import { createHttpApp } from './httpServer.js';
+import { createLaravelAccessChecker } from './laravelAuth.js';
 import { createLogger } from './logger.js';
 import { attachWebSocketServer } from './wsServer.js';
 import type { WebSocketServer } from 'ws';
@@ -12,9 +13,14 @@ const httpPort = readPort('HTTP_PORT', 6002);
 const port = wsPort;
 const internalSecret = process.env.WS_INTERNAL_SECRET ?? 'changeme';
 const nodeEnv = process.env.NODE_ENV ?? 'development';
+const laravelApiUrl = (process.env.LARAVEL_API_URL ?? '').trim();
 
 if (nodeEnv === 'production' && (internalSecret === 'changeme' || internalSecret.length < 32)) {
   throw new Error('WS_INTERNAL_SECRET must be a random string of at least 32 characters in production.');
+}
+
+if (laravelApiUrl === '') {
+  throw new Error('LARAVEL_API_URL is required.');
 }
 
 const broadcaster = new Broadcaster(logger);
@@ -33,7 +39,12 @@ const app = createHttpApp({
 });
 
 const httpServer = createServer(app);
-wss = attachWebSocketServer(httpServer, broadcaster, logger);
+wss = attachWebSocketServer(
+  httpServer,
+  broadcaster,
+  logger,
+  createLaravelAccessChecker({ laravelApiUrl }),
+);
 
 httpServer.listen(port, host, () => {
   logger.info('ws-server started', {

@@ -7,6 +7,7 @@ export type {
   ParseJob,
   ParseProgressPayload,
   ParseStatus,
+  RatingCounts,
   Review,
   User,
 } from './models';

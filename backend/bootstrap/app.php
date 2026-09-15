@@ -27,7 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (AuthenticationException $exception, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
-                    'message' => $exception->getMessage() !== '' ? $exception->getMessage() : 'Unauthenticated.',
+                    'message' => 'Необходимо войти в систему.',
                     'errors' => new stdClass,
                 ], 401);
             }
@@ -38,7 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (AccessDeniedHttpException $exception, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
-                    'message' => $exception->getMessage() !== '' ? $exception->getMessage() : 'This action is unauthorized.',
+                    'message' => 'Недостаточно прав для этого действия.',
                     'errors' => new stdClass,
                 ], 403);
             }

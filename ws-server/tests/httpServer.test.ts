@@ -65,6 +65,25 @@ describe('HTTP internal progress', () => {
     expect(spy).toHaveBeenCalledWith('parse.42', body);
   });
 
+  it('forwards name, rating and address instead of stripping them', async () => {
+    const broadcaster = new Broadcaster(createSilentLogger());
+    const spy = vi.spyOn(broadcaster, 'broadcast');
+    const body = {
+      ...payload(),
+      name: 'Своя компания',
+      rating: 4.7,
+      address: 'Уфа',
+    };
+
+    const response = await request(createApp(broadcaster))
+      .post('/internal/progress')
+      .set('x-internal-secret', secret)
+      .send(body);
+
+    expect(response.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith('parse.42', body);
+  });
+
   it('returns subscriber count on health', async () => {
     const response = await request(createApp(new Broadcaster(createSilentLogger()), 3)).get('/health');
 

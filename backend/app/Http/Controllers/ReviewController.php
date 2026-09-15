@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\IndexReviewsRequest;
 use App\Http\Resources\ReviewResource;
 use App\Models\Organization;
 use App\Repositories\Contracts\ReviewRepositoryInterface;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class ReviewController extends Controller
 {
@@ -16,16 +16,23 @@ class ReviewController extends Controller
         private readonly ReviewRepositoryInterface $reviews,
     ) {}
 
-    public function index(Organization $organization, Request $request): JsonResponse
+    public function index(Organization $organization, IndexReviewsRequest $request): JsonResponse
     {
         $this->authorize('view', $organization);
 
-        $page = max(1, $request->integer('page', 1));
-        $paginator = $this->reviews->paginateByOrganization($organization->id, $page);
+        $paginator = $this->reviews->paginateByOrganization(
+            $organization->id,
+            $request->page(),
+            50,
+            $request->rating(),
+        );
 
         return $this->apiSuccess([
             'data' => ReviewResource::collection($paginator->getCollection())->resolve(),
-            'meta' => $this->paginationMeta($paginator),
+            'meta' => [
+                ...$this->paginationMeta($paginator),
+                'rating_counts' => $this->reviews->countByRating($organization->id),
+            ],
         ]);
     }
 }

@@ -20,7 +20,7 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center px-4 py-8">
+  <div class="flex min-h-screen w-full min-w-0 items-center justify-center px-4 py-8">
     <form class="glass-panel w-full max-w-md p-8" @submit.prevent="onSubmit">
       <div class="mb-8 text-center">
         <p class="text-sm uppercase tracking-[0.2em] text-indigo-300">Parser</p>

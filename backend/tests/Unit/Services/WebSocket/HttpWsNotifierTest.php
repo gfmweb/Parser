@@ -50,6 +50,9 @@ it('posts parse progress json to the ws-server internal endpoint', function () {
             'parsed' => 10,
             'status' => 'parsing',
             'error' => null,
+            'name' => null,
+            'rating' => null,
+            'address' => null,
         ]);
 });
 

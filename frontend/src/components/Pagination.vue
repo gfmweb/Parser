@@ -26,7 +26,12 @@ function goTo(page: number): void {
 
 <template>
   <nav v-if="lastPage > 1" class="flex flex-wrap items-center justify-center gap-2" aria-label="Пагинация">
-    <button class="glass-btn-secondary" type="button" :disabled="isFirst" @click="goTo(currentPage - 1)">
+    <button
+      class="glass-btn-secondary glass-btn-compact"
+      type="button"
+      :disabled="isFirst"
+      @click="goTo(currentPage - 1)"
+    >
       Назад
     </button>
 
@@ -34,8 +39,8 @@ function goTo(page: number): void {
       <span v-if="item === 'ellipsis'" class="px-1 text-slate-400">…</span>
       <button
         v-else
-        class="min-w-10"
-        :class="item === currentPage ? 'glass-btn' : 'glass-btn-secondary'"
+        class="min-w-8"
+        :class="item === currentPage ? 'glass-btn glass-btn-compact' : 'glass-btn-secondary glass-btn-compact'"
         type="button"
         :aria-current="item === currentPage ? 'page' : undefined"
         @click="goTo(item)"
@@ -44,7 +49,12 @@ function goTo(page: number): void {
       </button>
     </template>
 
-    <button class="glass-btn-secondary" type="button" :disabled="isLast" @click="goTo(currentPage + 1)">
+    <button
+      class="glass-btn-secondary glass-btn-compact"
+      type="button"
+      :disabled="isLast"
+      @click="goTo(currentPage + 1)"
+    >
       Вперёд
     </button>
   </nav>

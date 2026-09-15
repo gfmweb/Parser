@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\DTOs\OrganizationDataDTO;
+use App\DTOs\OrganizationMetaDTO;
 use App\Enums\ParseStatus;
 use App\Models\Organization;
 use App\Repositories\Contracts\OrganizationRepositoryInterface;
@@ -27,14 +28,6 @@ class OrganizationRepository implements OrganizationRepositoryInterface
             ->with('latestParseJob')
             ->orderByDesc('id')
             ->paginate($perPage, ['*'], 'page', $page);
-    }
-
-    public function findByUserAndUrl(int $userId, string $url): ?Organization
-    {
-        return Organization::query()
-            ->where('user_id', $userId)
-            ->where('yandex_url', $url)
-            ->first();
     }
 
     /**
@@ -60,9 +53,17 @@ class OrganizationRepository implements OrganizationRepositoryInterface
             'rating' => $parsed->rating,
             'rating_count' => $parsed->ratingCount,
             'review_count' => $parsed->reviewCount,
-            'parse_status' => ParseStatus::Done,
-            'parse_error' => null,
-            'last_parsed_at' => now(),
+        ]);
+    }
+
+    public function applyParsedMeta(int $id, OrganizationMetaDTO $meta): void
+    {
+        Organization::query()->whereKey($id)->update([
+            'yandex_id' => $meta->yandexId,
+            'name' => $meta->name,
+            'address' => $meta->address,
+            'rating' => $meta->rating,
+            'rating_count' => $meta->ratingCount,
         ]);
     }
 
