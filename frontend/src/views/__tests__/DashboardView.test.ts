@@ -77,6 +77,7 @@ describe('DashboardView', () => {
     await flushPromises();
 
     expect(wrapper.get('label').text()).toContain('Ссылка на организацию в Яндекс Картах');
+    expect(wrapper.get('form button[type="submit"]').text()).toContain('Добавить');
     wrapper.unmount();
   });
 

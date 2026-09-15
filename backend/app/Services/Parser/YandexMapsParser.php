@@ -6,7 +6,6 @@ namespace App\Services\Parser;
 
 use App\DTOs\OrganizationDataDTO;
 use App\DTOs\OrganizationMetaDTO;
-use App\DTOs\ReviewDTO;
 use App\Services\Parser\Contracts\ParserInterface;
 use App\Services\Parser\Exceptions\OrganizationNotFoundException;
 use App\Services\Parser\Exceptions\SourceChangedException;
@@ -15,6 +14,8 @@ use App\Services\Parser\Mappers\YandexReviewMapper;
 final class YandexMapsParser implements ParserInterface
 {
     private const REVIEW_PAGE_SIZE = 50;
+
+    private const MAX_REVIEWS = 600;
 
     public function __construct(
         private readonly YandexApiClient $client,
@@ -52,7 +53,7 @@ final class YandexMapsParser implements ParserInterface
 
             if ($reviewResults === null) {
                 if ($reviews === []) {
-                    throw new SourceChangedException('stack.0.results.items.0.reviewResults', $state);
+                    throw new SourceChangedException('stack.0.results.items.0.reviewResults');
                 }
 
                 $stoppedEarly = true;
@@ -63,13 +64,17 @@ final class YandexMapsParser implements ParserInterface
 
             foreach ($page as $review) {
                 $reviews[] = $review;
+
+                if (count($reviews) >= self::MAX_REVIEWS) {
+                    break;
+                }
             }
 
             if ($onProgress !== null && $reviews !== []) {
                 $onProgress(count($reviews), $this->progressTotal($meta['reviewCount'], count($reviews)));
             }
 
-            if ($this->isLastReviewsPage($reviewResults)) {
+            if (count($reviews) >= self::MAX_REVIEWS || $this->isLastReviewsPage($reviewResults)) {
                 break;
             }
 
@@ -78,7 +83,7 @@ final class YandexMapsParser implements ParserInterface
             $state = $this->client->getReviews($orgId, $offset, self::REVIEW_PAGE_SIZE, $slug);
         }
 
-        $reviewCount = $stoppedEarly
+        $reviewCount = $stoppedEarly || count($reviews) >= self::MAX_REVIEWS
             ? count($reviews)
             : ($meta['reviewCount'] > 0 ? $meta['reviewCount'] : count($reviews));
 
@@ -100,16 +105,6 @@ final class YandexMapsParser implements ParserInterface
     }
 
     /**
-     * @return list<ReviewDTO>
-     */
-    public function parseReviewsPage(string $orgId, int $offset, int $limit): array
-    {
-        $state = $this->client->getReviews($orgId, $offset, $limit);
-
-        return $this->mapper->map($this->reviewResults($state, $this->declaredReviewCount($state)));
-    }
-
-    /**
      * @param  array<string, mixed>  $state
      * @return array{name: string, address: string, rating: float, ratingCount: int, reviewCount: int}
      */
@@ -119,25 +114,25 @@ final class YandexMapsParser implements ParserInterface
         $name = $item['title'] ?? null;
 
         if (! is_string($name) || $name === '') {
-            throw new SourceChangedException('stack.0.results.items.0.title', $state);
+            throw new SourceChangedException('stack.0.results.items.0.title');
         }
 
         $ratingBlock = $item['ratingData'] ?? null;
 
         if (! is_array($ratingBlock)) {
-            throw new SourceChangedException('stack.0.results.items.0.ratingData', $state);
+            throw new SourceChangedException('stack.0.results.items.0.ratingData');
         }
 
         $ratingValue = $ratingBlock['ratingValue'] ?? null;
 
         if (! is_numeric($ratingValue)) {
-            throw new SourceChangedException('stack.0.results.items.0.ratingData.ratingValue', $state);
+            throw new SourceChangedException('stack.0.results.items.0.ratingData.ratingValue');
         }
 
         $ratingCount = $ratingBlock['ratingCount'] ?? null;
 
         if (! is_numeric($ratingCount)) {
-            throw new SourceChangedException('stack.0.results.items.0.ratingData.ratingCount', $state);
+            throw new SourceChangedException('stack.0.results.items.0.ratingData.ratingCount');
         }
 
         $address = $item['address'] ?? '';
@@ -167,26 +162,26 @@ final class YandexMapsParser implements ParserInterface
         $stack = $state['stack'] ?? null;
 
         if (! is_array($stack) || ! isset($stack[0]) || ! is_array($stack[0])) {
-            throw new SourceChangedException('stack.0', $state);
+            throw new SourceChangedException('stack.0');
         }
 
         $results = $stack[0]['results'] ?? null;
 
         if (! is_array($results)) {
-            throw new SourceChangedException('stack.0.results', $state);
+            throw new SourceChangedException('stack.0.results');
         }
 
         $items = $results['items'] ?? null;
 
         if (! is_array($items)) {
-            throw new SourceChangedException('stack.0.results.items', $state);
+            throw new SourceChangedException('stack.0.results.items');
         }
 
         if ($items === []) {
             throw new OrganizationNotFoundException('Организация не найдена в Яндекс Картах.');
         }
 
-        throw new SourceChangedException('stack.0.results.items.0', $state);
+        throw new SourceChangedException('stack.0.results.items.0');
     }
 
     /**
@@ -214,34 +209,6 @@ final class YandexMapsParser implements ParserInterface
         }
 
         return null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $state
-     * @return array<string, mixed>
-     */
-    private function reviewResults(array $state, int $declaredReviewCount): array
-    {
-        $reviewResults = $this->reviewResultsOrNull($state, $declaredReviewCount);
-
-        if ($reviewResults === null) {
-            throw new SourceChangedException('stack.0.results.items.0.reviewResults', $state);
-        }
-
-        return $reviewResults;
-    }
-
-    /**
-     * @param  array<string, mixed>  $state
-     */
-    private function declaredReviewCount(array $state): int
-    {
-        $item = $this->orgItem($state);
-        $reviewCount = is_array($item['ratingData'] ?? null)
-            ? ($item['ratingData']['reviewCount'] ?? 0)
-            : 0;
-
-        return is_numeric($reviewCount) ? (int) $reviewCount : 0;
     }
 
     /**

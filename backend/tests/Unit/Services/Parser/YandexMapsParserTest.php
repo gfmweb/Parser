@@ -242,3 +242,38 @@ it('invokes onMeta after the first page before fetching the next', function () {
     expect($metaName)->toBe('The Borщ')
         ->and($secondPageFetched)->toBeTrue();
 });
+
+it('stops after 600 reviews and does not fetch the next page', function () {
+    $first = yandexOrgStateFixture();
+    $template = $first['stack'][0]['results']['items'][0]['reviewResults']['reviews'][0];
+    $first['stack'][0]['results']['items'][0]['ratingData']['reviewCount'] = 1023;
+    $first['stack'][0]['results']['items'][0]['reviewResults']['params'] = [
+        'offset' => 0,
+        'limit' => 50,
+        'count' => 1023,
+        'page' => 1,
+        'totalPages' => 21,
+    ];
+    $first['stack'][0]['results']['items'][0]['reviewResults']['reviews'] = array_map(
+        static function (int $index) use ($template): array {
+            $review = $template;
+            $review['reviewId'] = 'review_'.$index;
+
+            return $review;
+        },
+        range(1, 600),
+    );
+
+    $client = Mockery::mock(YandexApiClient::class);
+    $client->shouldReceive('getReviews')
+        ->once()
+        ->with('1123212619', 0, 50, 'svoya_kompaniya')
+        ->andReturn($first);
+
+    $parser = new YandexMapsParser($client, new YandexUrlParser, new YandexReviewMapper);
+    $parsed = $parser->parse('https://yandex.ru/maps/org/svoya_kompaniya/1123212619/');
+
+    expect($parsed->reviews)->toHaveCount(600)
+        ->and($parsed->reviewCount)->toBe(600)
+        ->and($parsed->incomplete)->toBeFalse();
+});

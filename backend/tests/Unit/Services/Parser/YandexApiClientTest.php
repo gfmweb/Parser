@@ -24,7 +24,7 @@ it('does not retry HTTP 429 in Guzzle middleware', function () {
 
     $api = new YandexApiClient($client);
 
-    expect(fn () => $api->getOrgInfo('12345678'))
+    expect(fn () => $api->getReviews('12345678', 0))
         ->toThrow(RateLimitedException::class);
 
     expect($mock->count())->toBe(0);

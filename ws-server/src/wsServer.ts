@@ -12,7 +12,7 @@ export function attachWebSocketServer(
   logger: Logger,
   accessChecker: OrganizationAccessChecker,
 ): WebSocketServer {
-  const wss = new WebSocketServer({ server: httpServer });
+  const wss = new WebSocketServer({ server: httpServer, maxPayload: 64_000 });
 
   wss.on('connection', (ws: WebSocket, _request: IncomingMessage) => {
     logger.info('ws connected', { connections: wss.clients.size });
@@ -63,6 +63,7 @@ export async function handleClientMessage(
 
   if (organizationId === null) {
     sendError(ws, parsed.data.channel, 'Forbidden');
+    ws.close();
     return;
   }
 
@@ -71,6 +72,7 @@ export async function handleClientMessage(
   if (!allowed) {
     sendError(ws, parsed.data.channel, 'Forbidden');
     logger.info('ws subscribe denied', { channel: parsed.data.channel });
+    ws.close();
     return;
   }
 

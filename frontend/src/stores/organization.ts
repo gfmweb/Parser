@@ -63,14 +63,14 @@ export const useOrganizationStore = defineStore('organization', () => {
       const collected: Organization[] = [];
       let page = 1;
       const maxPages = 50;
+      let lastPage = 1;
 
       while (page <= maxPages) {
         const response = await api.get<PaginatedResponse<Organization>>('/organizations', {
           params: { page },
         });
         collected.push(...response.data.data.map(localizeOrganization));
-
-        const lastPage = response.data.meta.last_page;
+        lastPage = response.data.meta.last_page;
 
         if (page >= lastPage) {
           break;
@@ -80,6 +80,10 @@ export const useOrganizationStore = defineStore('organization', () => {
       }
 
       organizations.value = collected;
+
+      if (lastPage > maxPages) {
+        error.value = 'Показаны первые организации. Обновите список позже.';
+      }
     } catch (caught) {
       error.value = normalizeApiError(caught, 'Не удалось загрузить организации.').message;
       throw caught;

@@ -110,6 +110,7 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm --n
 | `FRONTEND_URL` | URL фронтенда (CORS / редиректы) | `http://localhost:5173` |
 | `WS_SERVER_URL` | Базовый URL Node.js WS-сервера для внутренних HTTP-уведомлений | `http://ws-server:6001` |
 | `WS_INTERNAL_SECRET` | Общий секрет Laravel ↔ WS (`X-Internal-Secret`); в продакшене 32 случайных символа | `changeme` |
+| `LARAVEL_API_URL` | Базовый URL Laravel API для проверки Sanctum при WS-подписке (`ws-server` → nginx). Токен уходит в JSON `subscribe`, не в query | `http://nginx/api` |
 | `PROXY_LIST` | Зарезервировано: список прокси через запятую для будущего пула | пусто |
 | `REDIS_QUEUE_RETRY_AFTER` | Через сколько секунд Redis считает джобу зависшей (`retry_after` > timeout воркера) | `300` |
 | `AWS_ACCESS_KEY_ID` | Ключ AWS (штатный шаблон Laravel, не используется парсером) | — |
@@ -220,7 +221,7 @@ php artisan queue:work --sleep=1 --tries=3 --backoff=60 --timeout=240
 
 В таблице `reviews` уникальность `(organization_id, yandex_review_id)`. Повторный парсинг делает `INSERT … ON CONFLICT DO UPDATE` (`upsert`): дубликаты не появляются, текст и оценка обновляются.
 
-После каждого успешного прогона `organization_snapshots` хранит полный снимок рейтинга/числа отзывов и JSON-поле `diff`. Снимки смотрят так: `GET /api/organizations/{id}/snapshots` (сортировка по `snapshot_at`).
+После каждого успешного прогона `organization_snapshots` хранит полный снимок рейтинга/числа отзывов и JSON-поле `diff`.
 
 `diff` содержит только изменившиеся поля, например:
 

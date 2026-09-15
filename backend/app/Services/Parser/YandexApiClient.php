@@ -64,14 +64,6 @@ class YandexApiClient
     /**
      * @return array<string, mixed>
      */
-    public function getOrgInfo(string $orgId, ?string $slug = null): array
-    {
-        return $this->getReviewsPage($orgId, 1, $slug);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
     public function getReviews(string $orgId, int $offset, int $limit = 50, ?string $slug = null): array
     {
         $pageSize = max($limit, 1);
@@ -83,7 +75,7 @@ class YandexApiClient
     /**
      * @return array<string, mixed>
      */
-    public function getReviewsPage(string $orgId, int $page, ?string $slug = null): array
+    private function getReviewsPage(string $orgId, int $page, ?string $slug = null): array
     {
         return $this->getHtmlState($this->reviewsPath($orgId, $slug), [
             'page' => max($page, 1),

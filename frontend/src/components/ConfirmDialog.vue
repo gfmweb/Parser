@@ -74,6 +74,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   const buttons = focusableButtons();
 
   if (buttons.length === 0) {
+    event.preventDefault();
     return;
   }
 

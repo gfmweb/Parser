@@ -19,7 +19,7 @@ final class YandexMapsStateExtractor
     public function extract(string $html): array
     {
         if (preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $html, $matches) === false) {
-            throw new SourceChangedException('stack', ['html' => $html]);
+            throw new SourceChangedException('stack');
         }
 
         $fallback = null;
@@ -53,7 +53,7 @@ final class YandexMapsStateExtractor
             return $fallback;
         }
 
-        throw new SourceChangedException('stack', ['html' => $html]);
+        throw new SourceChangedException('stack');
     }
 
     /**

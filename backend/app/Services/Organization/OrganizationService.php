@@ -39,7 +39,13 @@ final class OrganizationService
             ]);
         }
 
-        $this->dispatchParse($organization);
+        try {
+            $this->dispatchParse($organization);
+        } catch (OrganizationAlreadyParsingException) {
+            throw ValidationException::withMessages([
+                'url' => ['Эта организация уже добавлена.'],
+            ]);
+        }
 
         return $organization->load('latestParseJob');
     }

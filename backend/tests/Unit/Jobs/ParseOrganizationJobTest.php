@@ -185,7 +185,7 @@ it('marks the organization failed without retrying SourceChangedException', func
     $parser = Mockery::mock(ParserInterface::class);
     $parser->shouldReceive('parse')
         ->once()
-        ->andThrow(new SourceChangedException('reviews[].id', ['sample' => true]));
+        ->andThrow(new SourceChangedException('reviews[].id'));
     app()->instance(ParserInterface::class, $parser);
 
     $notifier = Mockery::mock(WsNotifierInterface::class);

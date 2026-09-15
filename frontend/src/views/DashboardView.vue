@@ -139,7 +139,7 @@ async function confirmDelete(): Promise<void> {
           :disabled="organizations.isCreating"
         >
           <span v-if="organizations.isCreating" class="spinner" aria-hidden="true" />
-          <span>{{ organizations.isCreating ? 'Добавляем…' : 'Парсить' }}</span>
+          <span>{{ organizations.isCreating ? 'Добавляем…' : 'Добавить' }}</span>
         </button>
       </form>
       <p v-if="urlError" class="mt-3 text-sm text-red-300" role="alert">{{ urlError }}</p>

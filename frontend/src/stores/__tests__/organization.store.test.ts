@@ -255,6 +255,22 @@ describe('useOrganizationStore', () => {
     expect(store.organizations.map((item) => item.id)).toEqual([7, 8]);
   });
 
+  it('fetchAll caps at 50 pages and sets a truncation error', async () => {
+    getMock.mockImplementation(async (_url: string, config: { params: { page: number } }) => ({
+      data: {
+        data: [{ ...organization, id: config.params.page }],
+        meta: { current_page: config.params.page, last_page: 51, total: 1020, per_page: 20 },
+      },
+    }));
+
+    const store = useOrganizationStore();
+    await store.fetchAll();
+
+    expect(getMock).toHaveBeenCalledTimes(50);
+    expect(store.organizations).toHaveLength(50);
+    expect(store.error).toBe('Показаны первые организации. Обновите список позже.');
+  });
+
   it('remove clears reviews of the deleted current organization', async () => {
     deleteMock.mockResolvedValueOnce({ data: { message: 'Организация удалена.' } });
 

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLaravelAccessChecker } from '../src/laravelAuth.js';
 
-function jsonResponse(status: number): Response {
-  return new Response(JSON.stringify({ ok: true }), {
+function jsonResponse(status: number, body: unknown = { id: 1 }): Response {
+  return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
@@ -14,14 +14,14 @@ describe('createLaravelAccessChecker', () => {
       const url = String(input);
 
       if (url.endsWith('/user')) {
-        return jsonResponse(200);
+        return jsonResponse(200, { id: 7 });
       }
 
       if (url.endsWith('/organizations/42')) {
-        return jsonResponse(200);
+        return jsonResponse(200, { id: 42 });
       }
 
-      return jsonResponse(404);
+      return jsonResponse(404, {});
     }) as typeof fetch;
 
     const checker = createLaravelAccessChecker({
@@ -34,6 +34,7 @@ describe('createLaravelAccessChecker', () => {
       1,
       'http://nginx/api/user',
       expect.objectContaining({
+        redirect: 'error',
         headers: expect.objectContaining({
           Authorization: 'Bearer valid-token',
         }),
@@ -43,6 +44,7 @@ describe('createLaravelAccessChecker', () => {
       2,
       'http://nginx/api/organizations/42',
       expect.objectContaining({
+        redirect: 'error',
         headers: expect.objectContaining({
           Authorization: 'Bearer valid-token',
         }),
@@ -50,11 +52,28 @@ describe('createLaravelAccessChecker', () => {
     );
   });
 
+  it('denies HTML 200 from a misconfigured Laravel URL', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response('<!doctype html><html></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+    ) as typeof fetch;
+
+    const checker = createLaravelAccessChecker({
+      laravelApiUrl: 'http://nginx',
+      fetchImpl,
+    });
+
+    await expect(checker.canAccess('valid-token', 42)).resolves.toBe(false);
+  });
+
   it('denies a foreign organization with the same error path as a bad token', async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse(200))
-      .mockResolvedValueOnce(jsonResponse(403)) as typeof fetch;
+      .mockResolvedValueOnce(jsonResponse(200, { id: 7 }))
+      .mockResolvedValueOnce(jsonResponse(403, {})) as typeof fetch;
 
     const checker = createLaravelAccessChecker({
       laravelApiUrl: 'http://nginx/api/',
@@ -65,7 +84,7 @@ describe('createLaravelAccessChecker', () => {
   });
 
   it('denies an invalid token without calling the organization endpoint', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(401)) as typeof fetch;
+    const fetchImpl = vi.fn(async () => jsonResponse(401, {})) as typeof fetch;
     const checker = createLaravelAccessChecker({
       laravelApiUrl: 'http://nginx/api',
       fetchImpl,
@@ -75,21 +94,28 @@ describe('createLaravelAccessChecker', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('caches a successful check for the ttl', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200)) as typeof fetch;
+  it('caches a successful check for 15 seconds', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.endsWith('/user')) {
+        return jsonResponse(200, { id: 7 });
+      }
+
+      return jsonResponse(200, { id: 42 });
+    }) as typeof fetch;
     let now = 1_000;
     const checker = createLaravelAccessChecker({
       laravelApiUrl: 'http://nginx/api',
       fetchImpl,
       now: () => now,
-      ttlMs: 60_000,
     });
 
     await expect(checker.canAccess('valid-token', 42)).resolves.toBe(true);
     await expect(checker.canAccess('valid-token', 42)).resolves.toBe(true);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
 
-    now = 62_000;
+    now = 16_000;
     await expect(checker.canAccess('valid-token', 42)).resolves.toBe(true);
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });

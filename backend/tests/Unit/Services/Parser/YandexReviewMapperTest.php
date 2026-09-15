@@ -76,14 +76,12 @@ it('throws SourceChangedException and logs when required fields are missing', fu
     expect(fn () => $mapper->map($payload))
         ->toThrow(SourceChangedException::class, 'Не удалось разобрать страницу Яндекса. Попробуйте позже.');
 
-    $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
     Log::shouldHaveReceived('error')
         ->once()
-        ->withArgs(function (string $message, array $context) use ($encoded): bool {
+        ->withArgs(function (string $message, array $context): bool {
             return $message === 'Structure changed: missing field reviews[].reviewId'
                 && ($context['field'] ?? null) === 'reviews[].reviewId'
-                && ($context['json'] ?? null) === $encoded;
+                && ! array_key_exists('json', $context);
         });
 });
 
@@ -140,24 +138,18 @@ it('handles empty reviews array without error', function () use ($mapper) {
     expect($mapper->map(['reviews' => []]))->toBe([]);
 });
 
-it('logs only the first 1000 characters of the raw json sample', function () {
+it('logs the missing field without a json sample', function () {
     Log::spy();
 
-    $payload = [
-        'blob' => str_repeat('я', 4000),
-    ];
-
-    $exception = new SourceChangedException('reviews[].reviewId', $payload);
+    $exception = new SourceChangedException('reviews[].reviewId');
 
     expect($exception->getMessage())->toBe('Не удалось разобрать страницу Яндекса. Попробуйте позже.');
 
     Log::shouldHaveReceived('error')
         ->once()
         ->withArgs(function (string $message, array $context): bool {
-            $json = $context['json'] ?? null;
-
             return $message === 'Structure changed: missing field reviews[].reviewId'
-                && is_string($json)
-                && mb_strlen($json) === 1000;
+                && ($context['field'] ?? null) === 'reviews[].reviewId'
+                && ! array_key_exists('json', $context);
         });
 });

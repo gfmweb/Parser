@@ -23,8 +23,9 @@ return new class extends Migration
             }
         }
 
-        // Дубликаты (user_id, yandex_id): оставляем самую раннюю запись,
+        // Дубликаты (user_id, yandex_id) не сливаются: оставляем самую раннюю карточку,
         // у остальных обнуляем yandex_id, иначе CREATE UNIQUE INDEX упадёт.
+        // Apply этой миграции — отдельно, не из этого прогона.
         DB::statement(<<<'SQL'
             UPDATE organizations SET yandex_id = NULL
             WHERE id NOT IN (

@@ -52,7 +52,7 @@ describe('handleClientMessage', () => {
     expect(socket.send).toHaveBeenCalledWith(
       JSON.stringify({ type: 'error', channel: 'parse.12', message: 'Forbidden' }),
     );
-    expect(socket.close).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalled();
   });
 
   it('closes the socket when the subscribe payload has no token', async () => {

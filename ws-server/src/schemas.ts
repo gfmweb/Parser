@@ -19,7 +19,7 @@ export const parseChannelSchema = z
 const subscribeMessageSchema = z.object({
   type: z.literal('subscribe'),
   channel: parseChannelSchema,
-  token: z.string().min(1),
+  token: z.string().min(1).max(2048),
 });
 
 const progressMessageSchema = z.object({

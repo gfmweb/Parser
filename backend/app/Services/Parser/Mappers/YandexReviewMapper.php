@@ -22,7 +22,7 @@ class YandexReviewMapper
 
         foreach ($reviews as $index => $review) {
             if (! is_array($review)) {
-                throw new SourceChangedException("reviewResults.reviews.{$index}", $payload);
+                throw new SourceChangedException("reviewResults.reviews.{$index}");
             }
 
             $mappedReview = $this->mapReview($review, $payload);
@@ -51,7 +51,7 @@ class YandexReviewMapper
             return array_values($data['reviews']);
         }
 
-        throw new SourceChangedException('reviewResults.reviews', $payload);
+        throw new SourceChangedException('reviewResults.reviews');
     }
 
     /**
@@ -63,13 +63,13 @@ class YandexReviewMapper
         $id = $review['reviewId'] ?? $review['id'] ?? null;
 
         if (! is_string($id) && ! is_int($id)) {
-            throw new SourceChangedException('reviews[].reviewId', $payload);
+            throw new SourceChangedException('reviews[].reviewId');
         }
 
         $rating = $review['rating'] ?? null;
 
         if (! is_int($rating) && ! is_float($rating) && ! is_numeric($rating)) {
-            throw new SourceChangedException('reviews[].rating', $payload);
+            throw new SourceChangedException('reviews[].rating');
         }
 
         $ratingInt = (int) $rating;
@@ -82,13 +82,13 @@ class YandexReviewMapper
         $createdTime = $review['updatedTime'] ?? $review['createdTime'] ?? null;
 
         if (! is_string($createdTime) || $createdTime === '') {
-            throw new SourceChangedException('reviews[].updatedTime', $payload);
+            throw new SourceChangedException('reviews[].updatedTime');
         }
 
         try {
             $reviewedAt = new DateTimeImmutable($createdTime);
         } catch (Exception $exception) {
-            throw new SourceChangedException('reviews[].updatedTime', $payload, 0, $exception);
+            throw new SourceChangedException('reviews[].updatedTime', 0, $exception);
         }
 
         $author = is_array($review['author'] ?? null) ? $review['author'] : [];

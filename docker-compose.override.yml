@@ -19,6 +19,9 @@ services:
     environment:
       NODE_ENV: development
     command: sh -c "npm install && npm run dev"
+    networks:
+      - ws_net
+      - egress_net
 
   nginx:
     volumes:

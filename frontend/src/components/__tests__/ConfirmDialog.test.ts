@@ -151,4 +151,35 @@ describe('ConfirmDialog', () => {
 
     wrapper.unmount();
   });
+
+  it('keeps Tab inside the dialog while loading', async () => {
+    const outside = document.createElement('button');
+    outside.type = 'button';
+    outside.textContent = 'outside';
+    document.body.appendChild(outside);
+
+    const wrapper = mount(ConfirmDialog, {
+      props: {
+        open: true,
+        title: 'Удалить организацию?',
+        message: '«Кафе» и все отзывы будут удалены. Это нельзя отменить.',
+        isLoading: true,
+      },
+      attachTo: document.body,
+    });
+
+    await wrapper.vm.$nextTick();
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    dialog?.dispatchEvent(tab);
+    await wrapper.vm.$nextTick();
+
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).not.toBe(outside);
+
+    wrapper.unmount();
+    outside.remove();
+  });
 });

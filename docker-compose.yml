@@ -148,7 +148,6 @@ services:
       start_period: 10s
     networks:
       - ws_net
-      - egress_net
 
 volumes:
   postgres_data:
